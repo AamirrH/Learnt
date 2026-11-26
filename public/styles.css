@@ -63,7 +63,7 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 .primary-button, .quiet-button { min-height: 40px; border-radius: 9px; padding: 8px 13px; font-weight: 650; font-size: .875rem; transition: background-color .15s; }
 .primary-button { border: 1px solid var(--accent); color: #fff; background: var(--accent); }
 .primary-button:not(:disabled):hover { background: #46317d; }
-.primary-button span { margin-right: 5px; }
+.primary-button [aria-hidden] { margin-right: 5px; }
 .primary-button:disabled { color: #6e638a; background: #efebf7; border-color: #efebf7; }
 .quiet-button { border: 1px solid #e4deef; color: #54447e; background: #fff; }
 .quiet-button:not(:disabled):hover { background: #f4effc; }
@@ -108,6 +108,7 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 .option.is-answer, .legend b { background: var(--tint); color: var(--ink); border-color: var(--edge); }
 .option.is-answer .option-label { color: inherit; }
 .explanation { margin: 8px 0 0; color: var(--muted); font-size: .875rem; line-height: 1.5; }
+.unanswered { color: #704a15; }
 
 .status { margin: 12px 0 0; font-size: .875rem; color: var(--accent); }
 .status:empty { margin: 0; }
