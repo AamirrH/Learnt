@@ -4,9 +4,9 @@ Learnt turns pasted multiple-choice questions into a reviewed, colour-coded answ
 
 ## Run locally
 
-Use Node.js 22 or later. Start the app with `npm start` and open [Learnt on localhost](http://127.0.0.1:3000/). The **Load example** button works with built-in answers.
+Use Node.js 22 or later. Start the app with `npm start` and open [Learnt on localhost](http://127.0.0.1:3000/).
 
-For answers to your own questions, select **Add Gemini key** and paste your key. Learnt also prompts you for a key when you first select **Get answers**. You can replace or remove the key from the header. See [Google’s Gemini API key guide](https://ai.google.dev/gemini-api/docs/api-key).
+Enter your Gemini API key in the startup prompt to unlock the workspace. You can replace or remove the key from **Gemini key** in the header. Removing it locks the workspace again. After unlocking, **Load example** uses built-in answers. See [Google’s Gemini API key guide](https://ai.google.dev/gemini-api/docs/api-key).
 
 The server uses `gemini-3.8-flash` by default. Set `GEMINI_MODEL` in the same session to use a different model that supports structured output. See [the Gemini model list](https://ai.google.dev/gemini-api/docs/models).
 
