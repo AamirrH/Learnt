@@ -33,8 +33,8 @@ const exampleAnswers = [
 const ids = [
   'paste-form', 'source', 'exclusions', 'source-count', 'load-example', 'review', 'clear',
   'step-paste', 'step-review', 'step-answers', 'review-title', 'review-description',
-  'empty-state', 'review-content', 'result-summary', 'issues', 'removed', 'removed-summary',
-  'removed-list', 'question-list', 'answer', 'answer-label', 'answer-note', 'copy', 'status',
+  'empty-state', 'review-content', 'result-summary', 'issues', 'question-list',
+  'answer', 'answer-label', 'answer-note', 'copy', 'status',
   'workspace', 'manage-key', 'key-dialog', 'key-description', 'key-form', 'key-input', 'remove-key', 'cancel-key', 'save-key',
 ];
 const ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
@@ -129,11 +129,9 @@ function render() {
   else if (pending) ui['answer-note'].textContent = 'Waiting for Gemini.';
   else ui['answer-note'].textContent = 'Uses your Gemini API key.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
+  if (review.removed.length) ui['result-summary'].textContent += ` · ${plural(review.removed.length, 'paragraph')} removed`;
   ui.issues.hidden = !review.warnings.length;
   ui.issues.replaceChildren(...review.warnings.map((issue) => element('li', issue)));
-  ui.removed.hidden = !review.removed.length;
-  ui['removed-summary'].textContent = `${plural(review.removed.length, 'paragraph')} removed`;
-  ui['removed-list'].replaceChildren(...review.removed.map((paragraph) => element('li', paragraph)));
 
   const byId = new Map(answers?.map((answer) => [answer.id, answer]));
   ui['question-list'].replaceChildren(...review.questions.map((question) => questionCard(question, byId.get(question.id))));
@@ -231,7 +229,6 @@ ui['paste-form'].addEventListener('submit', (event) => {
   cancelPendingAnswer();
   review = parseQuestions(ui.source.value, ui.exclusions.value);
   answers = null;
-  ui.removed.open = false;
   render();
   const message = `${plural(review.questions.length, 'question')} found. ${plural(review.removed.length, 'paragraph')} removed.`;
   announce(review.warnings.length ? `${message} Check the review notes.` : message);

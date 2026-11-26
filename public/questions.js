@@ -17,11 +17,13 @@ export function distinguishingPrefixEnd(answer, alternatives) {
   return lastWord ? lastWord.index + lastWord[0].length : 0;
 }
 
-const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})(?:[.):]\s*|\s+[-–]\s*))(.*)$/i;
+const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})(?:[.):](?!\d)\s*|\s+[-–]\s*))(.*)$/i;
 const optionAtStart = /^\s*(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))\s*(.*)$/i;
 const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/gi;
 const paragraphBreak = /(\n[^\S\n]*\n(?:[^\S\n]*\n)*)/;
 const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\s+answer|all\s+that\s+apply)\s*[.!]?\s*$/i;
+const portalPrompt = /^Do you understand\s*\?\s*\.$/i;
+const portalFooter = /^(?:\d+(?:[.,]\d+)?\s+points?|Coursera Honor Code|Last saved on [^\n]+)[\t ]*(?:\n|$)/i;
 
 function splitInlineOptions(lines) {
   return lines.flatMap((line) => {
@@ -86,14 +88,28 @@ function readUnlabeledParts(lines) {
   const blocks = paragraphs(lines.join('\n'));
   const instructionIndex = blocks.findIndex((block) => answerInstruction.test(block));
   const stemEnd = instructionIndex === -1 && blocks.length === LETTERS.length + 1 ? 0 : instructionIndex;
-  if (stemEnd < 0 || blocks.length - stemEnd <= LETTERS.length) return null;
+  if (stemEnd < 0) return null;
 
   const optionsStart = stemEnd + 1;
-  const optionsEnd = optionsStart + LETTERS.length;
+  const afterStem = blocks.slice(optionsStart);
+  const candidates = afterStem.filter((block) => !portalPrompt.test(block));
+  const footerIndex = candidates.findIndex((block, index) => index >= LETTERS.length && portalFooter.test(block));
+  const beforeFooter = footerIndex === -1 ? candidates : candidates.slice(0, footerIndex);
+  const withoutPrompt = beforeFooter.filter((block) => !/^Do you understand\s*\?$/i.test(block));
+  const choices = (withoutPrompt.length >= LETTERS.length ? withoutPrompt : beforeFooter).slice(0, LETTERS.length);
+  if (choices.length !== LETTERS.length) return null;
+
+  // Compare blocks by position so a repeated choice cannot hide a matching footer entry.
+  let selected = 0;
+  const trailing = afterStem.filter((block) => {
+    if (block !== choices[selected]) return true;
+    selected += 1;
+    return false;
+  });
   return {
     stem: blocks.slice(0, optionsStart).join('\n\n'),
-    choices: blocks.slice(optionsStart, optionsEnd),
-    trailing: blocks.slice(optionsEnd),
+    choices,
+    trailing,
   };
 }
 
@@ -119,7 +135,12 @@ function readSection(section, index) {
     if (separator !== -1) trailing.push(...finalPart.splice(separator));
   }
 
-  const [labeledStem, ...labeledChoices] = parts.map((part) => part.join('\n').trim());
+  const [stemWithFiller, ...labeledChoices] = parts.map((part) => part.join('\n').trim());
+  const stemParagraphs = paragraphs(stemWithFiller);
+  const filler = stemParagraphs.filter((paragraph, index) => index > 0 && portalPrompt.test(paragraph));
+  const labeledStem = filler.length
+    ? stemParagraphs.filter((paragraph, index) => index === 0 || !portalPrompt.test(paragraph)).join('\n\n')
+    : stemWithFiller;
   const unlabeled = letters.length ? null : readUnlabeledParts(section.lines);
   const stem = unlabeled?.stem ?? labeledStem;
   const choices = unlabeled?.choices ?? labeledChoices;
@@ -133,7 +154,7 @@ function readSection(section, index) {
       stem,
       options: Object.fromEntries(LETTERS.map((letter, optionIndex) => [letter, choices[optionIndex]])),
     },
-    trailing: unlabeled?.trailing ?? paragraphs(trailing.join('\n')),
+    trailing: unlabeled?.trailing ?? [...filler, ...paragraphs(trailing.join('\n'))],
   };
 }
 

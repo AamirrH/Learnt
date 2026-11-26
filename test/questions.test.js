@@ -98,3 +98,28 @@ test('preserves context through the answer instruction and removes text after th
   assert.deepEqual(result.removed, ['End of preview']);
   assert.match(parseQuestions(source.split('\n\nFour')[0]).warnings[0], /Question 4 needs/);
 });
+
+test('removes course page text, quiz prompts, and score metadata before assigning choices', () => {
+  const result = parseQuestions([
+    'Course overview\nComplete two items today.',
+    'Assignment details\nDue next week',
+    '1.\nQuestion 1\nWhich colour works? Select the best answer.',
+    'Do you understand?.', 'Red', 'Green', 'Blue', 'Gold',
+    '0.5 points\nCoursera Honor Code\nSubmission notice',
+  ].join('\n\n'));
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 1);
+  assert.deepEqual(result.questions[0].options, { A: 'Red', B: 'Green', C: 'Blue', D: 'Gold' });
+  assert.deepEqual(result.removed, [
+    'Course overview\nComplete two items today.', 'Assignment details\nDue next week',
+    'Do you understand?.', '0.5 points\nCoursera Honor Code\nSubmission notice',
+  ]);
+});
+
+test('preserves point values and exact phrases when they are part of the four choices', () => {
+  const source = '1. Which phrase or value was given? Select the best answer.\n\nDo you understand?\n\nGo now\n\n2 points\n\n4 points\n\n1 point';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions[0].options, { A: 'Do you understand?', B: 'Go now', C: '2 points', D: '4 points' });
+  assert.deepEqual(result.removed, ['1 point']);
+});
