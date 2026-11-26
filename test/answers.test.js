@@ -35,7 +35,7 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
   const post = await startApi(t, {
     fetcher(url, options) {
       upstream = { url, ...options, body: JSON.parse(options.body) };
-      return providerResponse([...expected].reverse());
+      return providerResponse([...expected].reverse().map(({ choice, ...answer }) => ({ ...answer, choices: [choice] })));
     },
   });
 
@@ -47,12 +47,12 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
   assert.deepEqual(JSON.parse(upstream.body.contents[0].parts[0].text), {
     questions: questions.map(({ id, stem, options }) => ({ id, stem, options })),
   });
-  assert.deepEqual(upstream.body.generationConfig.responseJsonSchema.properties.answers.items.properties.choice.enum,
+  assert.deepEqual(upstream.body.generationConfig.responseJsonSchema.properties.answers.items.properties.choices.items.enum,
     ['A', 'B', 'C', 'D', 'UNANSWERABLE']);
 });
 
 test('rejects duplicate Gemini answers so one question cannot receive another answer', async (t) => {
-  const answer = { id: 'q1', choice: 'B', explanation: 'Example.' };
+  const answer = { id: 'q1', choices: ['B'], explanation: 'Example.' };
   const post = await startApi(t, { fetcher: () => providerResponse([answer, answer]) });
   const response = await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 502);
@@ -74,7 +74,7 @@ test('rejects invalid requests and reports a missing key without calling Gemini'
 test('uses each caller’s key for its own answer request without retaining it', async (t) => {
   const fetcher = t.mock.fn((_url, { headers }) => {
     const choice = headers[GEMINI_KEY_HEADER] === 'mock-key-one' ? 'A' : 'B';
-    return providerResponse([{ id: 'q1', choice, explanation: 'Example.' }]);
+    return providerResponse([{ id: 'q1', choices: [choice], explanation: 'Example.' }]);
   });
   const post = await startApi(t, { fetcher });
   const payload = { questions: [questions[0]] };
@@ -98,4 +98,26 @@ test('reports a rejected key without returning upstream credential details', asy
   const { error } = await response.json();
   assert.match(error, /replace it/);
   assert.doesNotMatch(error, /mock-key/);
+});
+
+test('keeps every selected option in order for select-all questions', async (t) => {
+  const question = { ...questions[0], stem: 'Which planets appear in the passage? Select all that apply.' };
+  const fetcher = () => providerResponse([{ id: question.id, choices: ['D', 'A', 'C'], explanation: 'All three appear.' }]);
+  const post = await startApi(t, { fetcher });
+  const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).answers, [{ id: question.id, choices: ['A', 'C', 'D'], explanation: 'All three appear.' }]);
+});
+
+test('rejects incompatible selections for single-answer and select-all questions', async (t) => {
+  let choices;
+  const single = questions[0];
+  const multiple = { ...single, stem: 'Which planets appear in the passage? Select all that apply.' };
+  const fetcher = () => providerResponse([{ id: single.id, choices, explanation: 'Example.' }]);
+  const post = await startApi(t, { fetcher });
+  for (const [question, selection] of [[single, ['A', 'B']], [multiple, ['A', 'A']], [multiple, ['A', 'UNANSWERABLE']]]) {
+    choices = selection;
+    const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+    assert.equal(response.status, 502);
+  }
 });

@@ -63,11 +63,16 @@ function isExample() {
   return ui.source.value.trim() === example && !ui.exclusions.value.trim();
 }
 
+function selectedOptions(answer) {
+  return answer?.choices ?? (LETTERS.includes(answer?.choice) ? [answer.choice] : []);
+}
+
 function questionCard(question, answer) {
   const card = element('li', '', 'question-card');
   const heading = element('h3');
   heading.append(element('span', `${question.number}.`, 'question-number'), element('span', question.stem));
   const options = element('ul', '', 'option-list');
+  const selected = selectedOptions(answer);
 
   for (const letter of LETTERS) {
     const option = element('li', '', 'option');
@@ -75,7 +80,7 @@ function questionCard(question, answer) {
     const wording = question.options[letter];
     const text = element('span', wording, 'option-text');
     option.append(element('strong', letter, 'option-label'), text);
-    if (answer?.choice === letter) {
+    if (selected.includes(letter)) {
       const alternatives = LETTERS.filter((other) => other !== letter).map((other) => question.options[other]);
       const end = distinguishingPrefixEnd(wording, alternatives);
       text.replaceChildren(element('mark', wording.slice(0, end), 'answer-highlight'), wording.slice(end));
@@ -275,11 +280,10 @@ async function requestAnswers() {
 ui.answer.addEventListener('click', requestAnswers);
 
 ui.copy.addEventListener('click', async () => {
-  const byId = new Map(answers.map((answer) => [answer.id, answer.choice]));
+  const byId = new Map(answers.map((answer) => [answer.id, answer]));
   const key = review.questions.map(({ id, number, options }) => {
-    const choice = byId.get(id);
-    const answer = choice === 'UNANSWERABLE' ? 'Unanswered' : `${choice}. ${options[choice]}`;
-    return `${number}. ${answer}`;
+    const wording = selectedOptions(byId.get(id)).map((choice) => `${choice}. ${options[choice]}`).join('\n   ');
+    return `${number}. ${wording || 'Unanswered'}`;
   }).join('\n');
   try {
     await navigator.clipboard.writeText(key);
