@@ -126,7 +126,7 @@ function render() {
   if (review.warnings.length) ui['answer-note'].textContent = 'Resolve the review notes to continue.';
   else if (exampleLoaded) ui['answer-note'].textContent = answers ? 'Example answer key ready.' : 'Uses built-in example answers.';
   else if (answers) ui['answer-note'].textContent = 'Answer key ready.';
-  else if (pending) ui['answer-note'].textContent = 'Waiting for Gemini.';
+  else if (pending) ui['answer-note'].textContent = 'Sending questions in small groups.';
   else ui['answer-note'].textContent = 'Uses your Gemini API key.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
   if (review.removed.length) ui['result-summary'].textContent += ` · ${plural(review.removed.length, 'paragraph')} removed`;
