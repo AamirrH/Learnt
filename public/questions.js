@@ -152,13 +152,55 @@ function splitInlineOptions(lines) {
   });
 }
 
+function readCopiedParts(lines) {
+  const labels = lines.flatMap((line, index) => !line.code && /^[A-D]$/.test(line.text.trim()) ? [index] : []);
+  if (labels.map((index) => lines[index].text.trim()).join('') !== 'ABCD') return null;
+
+  const trailing = [];
+  let hasAnswerBadge = false;
+  const choices = labels.map((label, index) => {
+    const option = lines.slice(label + 1, labels[index + 1]);
+    const first = option.findIndex((line) => !blank(line));
+    const last = option.findLastIndex((line) => !blank(line));
+    const final = index === labels.length - 1;
+    const badge = option.findIndex((line, position) => position > first && !line.code
+      && (line.text.trim() === 'Answer' || (final && line.text.trim() === 'Unanswered'))
+      && (final || position === last));
+    let end = option.length;
+    if (badge !== -1) {
+      end = badge;
+      hasAnswerBadge = true;
+    } else if (final && hasAnswerBadge && last > first && !option[last].code) {
+      // A copied key appends its explanation after option D, even when D is unselected.
+      end = last;
+    }
+    trailing.push(...paragraphs(option.slice(end)).map(contentText));
+    return contentText(option.slice(0, end));
+  });
+  const stem = contentText(lines.slice(0, labels[0]));
+  return stem && choices.every(Boolean) ? { stem, choices, trailing } : null;
+}
+
 function splitQuestions(lines) {
   const numbered = [];
   const prefix = [];
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const start = !line.code && line.text.match(questionStart);
     if (start) {
       const number = start[1] ?? start[2];
+      const bareNumber = Boolean(start[2]) && !start[3].trim();
+      if (bareNumber) {
+        let end = index + 1;
+        // A copied option can contain a heading such as "Question 42".
+        while (end < lines.length && (lines[end].code || !lines[end].text.match(questionStart)?.[2])) end += 1;
+        const copied = readCopiedParts(lines.slice(index + 1, end));
+        if (copied) {
+          numbered.push({ number, copied });
+          index = end - 1;
+          continue;
+        }
+      }
       const nested = start[2] && start[3].match(questionStart);
       const stem = nested?.[1] && Number(nested[1]) === Number(number) ? nested[3] : start[3];
       const previous = numbered.at(-1);
@@ -167,7 +209,7 @@ function splitQuestions(lines) {
         previous.lines = [{ text: stem }];
         previous.bareNumber = false;
       } else {
-        numbered.push({ number, lines: [{ text: stem }], bareNumber: Boolean(start[2]) && !start[3].trim() });
+        numbered.push({ number, lines: [{ text: stem }], bareNumber });
       }
     } else {
       (numbered.at(-1)?.lines ?? prefix).push(line);
@@ -243,11 +285,11 @@ function splitLastChoice(lines) {
   return { body: lines.slice(0, end), trailing: paragraphs(lines.slice(end)).map(contentText) };
 }
 
-function readSection(section, index) {
+function readStandardParts(sectionLines) {
   const parts = [[]];
   const letters = [];
   const filler = [];
-  const lines = section.lines.filter((line) => {
+  const lines = sectionLines.filter((line) => {
     if (line.code || !portalPrompt.test(line.text.trim())) return true;
     filler.push(line.text.trim());
     return false;
@@ -268,11 +310,20 @@ function readSection(section, index) {
 
   const [stemLines, ...choiceLines] = parts;
   const unlabeled = letters.length ? null : readUnlabeledParts(lines);
-  const stem = unlabeled?.stem ?? contentText(stemLines);
-  const choices = unlabeled?.choices ?? choiceLines.map(contentText);
-  if (!stem || (!unlabeled && !hasFourLabels) || choices.some((choice) => !choice)) {
+  if (!unlabeled && !hasFourLabels) return null;
+  return {
+    stem: unlabeled?.stem ?? contentText(stemLines),
+    choices: unlabeled?.choices ?? choiceLines.map(contentText),
+    trailing: [...filler, ...(unlabeled?.trailing ?? lastChoice.trailing)],
+  };
+}
+
+function readSection(section, index) {
+  const parts = section.copied ?? readStandardParts(section.lines);
+  if (!parts?.stem || parts.choices.some((choice) => !choice)) {
     return { issue: `Question ${section.number} needs question text and four options. Use A–D labels or separate the options with blank lines.` };
   }
+  const { stem, choices, trailing } = parts;
   return {
     question: {
       id: `q${index + 1}`,
@@ -280,7 +331,7 @@ function readSection(section, index) {
       stem,
       options: Object.fromEntries(LETTERS.map((letter, optionIndex) => [letter, choices[optionIndex]])),
     },
-    trailing: [...filler, ...(unlabeled?.trailing ?? lastChoice.trailing)],
+    trailing,
   };
 }
 
