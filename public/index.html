@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Clean up pasted multiple-choice questions and review their answers in one workspace.">
+    <title>Learnt · MCQ workspace</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="page-width header-inner">
+        <a class="brand" href="/" aria-label="Learnt home">
+          <span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>Learnt<span class="brand-period">.</span></span>
+        </a>
+        <span class="header-label">MCQ workspace</span>
+      </div>
+    </header>
+
+    <main class="page-width">
+      <section class="intro" aria-labelledby="page-title">
+        <h1 id="page-title">From paste to <em>answers.</em></h1>
+        <p>Paste a list of multiple-choice questions, remove unnecessary text, and get a colour-coded answer key.</p>
+      </section>
+
+      <ol class="steps" aria-label="Workspace progress">
+        <li id="step-paste" aria-current="step"><span>1</span> Paste</li>
+        <li id="step-review"><span>2</span> Review</li>
+        <li id="step-answers"><span>3</span> Answers</li>
+      </ol>
+
+      <div class="workspace">
+        <section class="panel input-panel" aria-labelledby="input-title">
+          <div class="panel-header">
+            <span class="panel-icon input-icon" aria-hidden="true">▤</span>
+            <div><h2 id="input-title">Paste questions</h2><p>Add your questions with options A–D.</p></div>
+            <button class="quiet-button sample-button" id="load-example" type="button">Load example</button>
+          </div>
+
+          <form id="paste-form">
+            <label class="sr-only" for="source">Questions to clean</label>
+            <textarea id="source" spellcheck="false" maxlength="60000" aria-describedby="format-note" placeholder="Paste your text here…&#10;&#10;1. Which planet is known as the Red Planet?&#10;A. Venus&#10;B. Mars&#10;C. Jupiter&#10;D. Saturn"></textarea>
+            <div class="input-meta">
+              <p id="format-note">Plain text with A–D labels</p>
+              <p id="source-count">0 characters</p>
+            </div>
+            <details class="exclusions">
+              <summary>Exclude specific paragraphs</summary>
+              <label for="exclusions">Paste each exact paragraph here. Separate paragraphs with a blank line.</label>
+              <textarea id="exclusions" rows="3" maxlength="60000" spellcheck="false"></textarea>
+            </details>
+            <div class="input-actions">
+              <button class="primary-button" id="review" type="submit" disabled><span aria-hidden="true">✦</span> Review questions</button>
+              <button class="quiet-button clear-button" id="clear" type="button" disabled>Clear</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel review-panel" aria-labelledby="review-title">
+          <div class="panel-header">
+            <span class="panel-icon review-icon" aria-hidden="true">☷</span>
+            <div><h2 id="review-title">Question preview</h2><p id="review-description">Review your cleaned list before answering.</p></div>
+            <button class="quiet-button" id="copy" type="button" hidden>Copy key</button>
+          </div>
+
+          <div class="review-body">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-art" aria-hidden="true">
+                <div class="paper paper-back"></div>
+                <div class="paper paper-front"><i></i><i></i><i></i></div>
+                <span class="paper-spark">✦</span>
+              </div>
+              <h3 id="empty-title">Your questions will appear here</h3>
+              <p id="empty-description">Paste your text and select Review questions to see the cleaned list.</p>
+            </div>
+            <div class="review-content" id="review-content" hidden>
+              <p class="result-summary" id="result-summary"></p>
+              <ul class="issues" id="issues" hidden></ul>
+              <details class="removed" id="removed" hidden>
+                <summary id="removed-summary"></summary>
+                <ul id="removed-list"></ul>
+              </details>
+              <ol class="question-list" id="question-list" aria-label="Cleaned questions"></ol>
+            </div>
+          </div>
+
+          <div class="review-actions">
+            <button class="primary-button" id="answer" type="button" disabled><span aria-hidden="true">✦</span> Get answers</button>
+            <p id="answer-note">Review the list to continue.</p>
+          </div>
+        </section>
+      </div>
+
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <footer class="workspace-footer">
+        <p>Question cleanup happens in your browser.</p>
+        <div class="legend" aria-label="Answer colours">
+          <span>Answer colours</span><b data-letter="A">A</b><b data-letter="B">B</b><b data-letter="C">C</b><b data-letter="D">D</b>
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
