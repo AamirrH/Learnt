@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseQuestions } from '../public/questions.js';
+import { distinguishingPrefixEnd, parseQuestions } from '../public/questions.js';
+
+test('highlights through the first word that distinguishes the answer from every option', () => {
+  const answer = 'The apples are red and fruity but rotten.';
+  const end = distinguishingPrefixEnd(answer, [
+    'The apples are red and tasty but rotten.',
+    'The apples are green and bitter.',
+    'The apples are yellow and sweet.',
+  ]);
+  assert.equal(answer.slice(0, end), 'The apples are red and fruity');
+  assert.equal(answer.slice(end), ' but rotten.');
+});
+
+test('keeps the answer’s original spacing and handles identical options', () => {
+  const answer = 'The apples\nare  fruity but rotten.';
+  const end = distinguishingPrefixEnd(answer, ['The apples are tasty but rotten.']);
+  assert.equal(answer.slice(0, end), 'The apples\nare  fruity');
+  assert.equal(distinguishingPrefixEnd(answer, ['The apples are fruity but rotten.']), answer.length);
+  assert.equal(distinguishingPrefixEnd('Mars', ['Venus', 'Earth', 'Saturn']), 4);
+});
 
 test('keeps original question numbering, option order, and wrapped text', () => {
   const result = parseQuestions(`Course portal notice\r\n\r\n7. A question with a wrapped\r\nstem?\r\nA. First\r\nB. Second\r\nsecond line\r\nC. Third\r\nD. Fourth\r\n\r\nA page-break notice\r\n\r\nQuestion 12: One-line question? A) Red B) Green C) Blue D) Yellow`);

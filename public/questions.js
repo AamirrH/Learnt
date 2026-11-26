@@ -2,6 +2,21 @@ export const LETTERS = Object.freeze(['A', 'B', 'C', 'D']);
 export const MAX_QUESTIONS = 50;
 export const MAX_SOURCE_LENGTH = 60_000;
 
+export function distinguishingPrefixEnd(answer, alternatives) {
+  const words = [...answer.matchAll(/\S+/gu)];
+  let sharedWords = 0;
+
+  for (const alternative of alternatives) {
+    const otherWords = alternative.match(/\S+/gu) ?? [];
+    let common = 0;
+    while (common < words.length && words[common][0] === otherWords[common]) common += 1;
+    sharedWords = Math.max(sharedWords, common);
+  }
+
+  const lastWord = words[Math.min(sharedWords, words.length - 1)];
+  return lastWord ? lastWord.index + lastWord[0].length : 0;
+}
+
 const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})(?:[.):]\s*|\s+[-–]\s*))(.*)$/i;
 const optionAtStart = /^\s*(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))\s*(.*)$/i;
 const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/gi;

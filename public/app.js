@@ -1,13 +1,13 @@
-import { LETTERS, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
+import { distinguishingPrefixEnd, LETTERS, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
 
 const example = `Practice quiz · General science
 This worksheet is for personal revision. Choose one answer for each question.
 
-1. Which planet is known as the Red Planet?
-A. Venus
-B. Mars
-C. Jupiter
-D. Saturn
+1. A tasting note describes the apples as fruity. Which option matches the note?
+A. The apples are red and tasty but rotten.
+B. The apples are red and fruity but rotten.
+C. The apples are green and bitter.
+D. The apples are yellow and sweet.
 
 End of preview page. Continue to the remaining questions below.
 
@@ -24,7 +24,7 @@ C. Wind
 D. Petroleum`;
 
 const exampleAnswers = [
-  { id: 'q1', choice: 'B', explanation: 'Iron oxide on the surface gives Mars its red colour.' },
+  { id: 'q1', choice: 'B', explanation: 'The tasting note describes the apples as fruity.' },
   { id: 'q2', choice: 'A', explanation: 'Plants use sunlight to produce sugars through photosynthesis.' },
   { id: 'q3', choice: 'C', explanation: 'Wind is replenished by natural atmospheric processes.' },
 ];
@@ -69,8 +69,13 @@ function questionCard(question, answer) {
   for (const letter of LETTERS) {
     const option = element('li', '', 'option');
     option.dataset.letter = letter;
-    option.append(element('strong', letter, 'option-label'), element('span', question.options[letter], 'option-text'));
+    const wording = question.options[letter];
+    const text = element('span', wording, 'option-text');
+    option.append(element('strong', letter, 'option-label'), text);
     if (answer?.choice === letter) {
+      const alternatives = LETTERS.filter((other) => other !== letter).map((other) => question.options[other]);
+      const end = distinguishingPrefixEnd(wording, alternatives);
+      text.replaceChildren(element('mark', wording.slice(0, end), 'answer-highlight'), wording.slice(end));
       option.classList.add('is-answer');
       option.append(element('span', 'Answer', 'option-answer'));
     }
@@ -206,9 +211,10 @@ ui.answer.addEventListener('click', async () => {
 
 ui.copy.addEventListener('click', async () => {
   const byId = new Map(answers.map((answer) => [answer.id, answer.choice]));
-  const key = review.questions.map(({ id, number }) => {
+  const key = review.questions.map(({ id, number, options }) => {
     const choice = byId.get(id);
-    return `${number}. ${choice === 'UNANSWERABLE' ? 'Unanswered' : choice}`;
+    const answer = choice === 'UNANSWERABLE' ? 'Unanswered' : `${choice}. ${options[choice]}`;
+    return `${number}. ${answer}`;
   }).join('\n');
   try {
     await navigator.clipboard.writeText(key);
