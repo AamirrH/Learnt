@@ -1,7 +1,13 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { LETTERS, toPlainQuizText } from './public/questions.js';
 import { GEMINI_KEY_HEADER } from './public/gemini-key.js';
 
-export const DEFAULT_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+const ALTERNATE_MODEL = 'gemini-3.8-flash';
+const modelSettings = new Map([
+  [DEFAULT_MODEL, { timeoutMs: 30_000, thinkingLevel: 'MINIMAL' }],
+  [ALTERNATE_MODEL, { timeoutMs: 45_000, thinkingLevel: 'LOW' }],
+]);
 const MAX_BATCH_QUESTIONS = 5;
 const MAX_BATCH_CHARACTERS = 12_000;
 const answerLabels = [...LETTERS, 'UNANSWERABLE'];
@@ -27,10 +33,11 @@ const answerSchema = {
 };
 
 export class GeminiError extends Error {
-  constructor(status, message, { retrySmaller = false } = {}) {
+  constructor(status, message, { retrySmaller = false, tryAlternate = false } = {}) {
     super(message);
     this.status = status;
     this.retrySmaller = retrySmaller;
+    this.tryAlternate = tryAlternate;
   }
 }
 
@@ -38,7 +45,7 @@ function incompleteResponse() {
   return new GeminiError(502, 'Gemini returned an incomplete answer key. Try Get answers again.', { retrySmaller: true });
 }
 
-async function upstreamError(response) {
+async function upstreamError(response, modelName) {
   const { status } = response;
   if (status === 400) {
     const result = await response.json().catch(() => null);
@@ -49,9 +56,10 @@ async function upstreamError(response) {
     return new GeminiError(502, 'Gemini rejected the request (HTTP 400). Check that the configured model supports structured JSON output and that your project can use it.');
   }
   if (status === 401 || status === 403) return new GeminiError(403, 'Gemini denied access. Check your API key and project in Google AI Studio.');
-  if (status === 404) return new GeminiError(502, 'The configured Gemini model is unavailable. Check GEMINI_MODEL.');
+  if (status === 404) return new GeminiError(502, `${modelName} is unavailable for this project (HTTP 404). Check GEMINI_MODEL.`, { tryAlternate: true });
   if (status === 429) return new GeminiError(429, 'Gemini hit a rate or quota limit. Try again later or check your quota.');
-  if (status >= 500) return new GeminiError(503, `Gemini is temporarily unavailable (HTTP ${status}). Try Get answers again in a moment.`);
+  if (status === 408 || status === 504) return new GeminiError(504, `${modelName} timed out (HTTP ${status}).`, { tryAlternate: true });
+  if (status >= 500) return new GeminiError(503, `${modelName} is temporarily unavailable (HTTP ${status}).`, { tryAlternate: true });
   return new GeminiError(502, `Gemini could not answer this request (HTTP ${status}). Try Get answers again.`);
 }
 
@@ -94,12 +102,14 @@ function readAnswers(payload, questions) {
 
 async function answerBatch(questions, { apiKey, model, fetcher, signal }) {
   signal?.throwIfAborted();
+  const settings = modelSettings.get(model);
+  const modelName = settings ? model : 'The configured Gemini model';
   const generationConfig = {
     responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: answerSchema } },
   };
-  if (model === DEFAULT_MODEL) generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+  if (settings) generationConfig.thinkingConfig = { thinkingLevel: settings.thinkingLevel };
 
-  const timeout = AbortSignal.timeout(50_000);
+  const timeout = AbortSignal.timeout(settings?.timeoutMs ?? 50_000);
   const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let payload;
   try {
@@ -119,14 +129,16 @@ async function answerBatch(questions, { apiKey, model, fetcher, signal }) {
         generationConfig,
       }),
     });
-    if (!response.ok) throw await upstreamError(response);
+    if (!response.ok) throw await upstreamError(response, modelName);
     payload = await response.json().catch((error) => {
       if (error instanceof SyntaxError) throw incompleteResponse();
       throw error;
     });
   } catch (error) {
     if (error instanceof GeminiError) throw error;
-    if (timeout.aborted) throw new GeminiError(504, 'Gemini took too long. Try Get answers again.', { retrySmaller: true });
+    if (timeout.aborted || error?.name === 'TimeoutError' || error?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT') {
+      throw new GeminiError(504, `${modelName} timed out.`, { tryAlternate: true });
+    }
     throw new GeminiError(502, 'Could not read a response from Gemini. Try again.');
   }
 
@@ -157,15 +169,36 @@ export async function answerWithGemini(questions, { apiKey, model = DEFAULT_MODE
     options: Object.fromEntries(LETTERS.map((letter) => [letter, toPlainQuizText(options[letter])])),
   }));
   const config = { apiKey, model, fetcher, signal };
+  let alternate = model === DEFAULT_MODEL ? ALTERNATE_MODEL : model === ALTERNATE_MODEL ? DEFAULT_MODEL : null;
+
+  async function requestBatch(batch) {
+    try {
+      return await answerBatch(batch, config);
+    } catch (firstError) {
+      if (!firstError?.tryAlternate || signal?.aborted) throw firstError;
+      if (!alternate) throw new GeminiError(firstError.status, `${firstError.message} Try Get answers again shortly.`);
+
+      config.model = alternate;
+      alternate = null;
+      if (firstError.status === 503) await delay(1_000 + Math.random() * 200, undefined, { signal });
+      try {
+        return await answerBatch(batch, config);
+      } catch (secondError) {
+        if (!secondError?.tryAlternate) throw secondError;
+        throw new GeminiError(secondError.status, `${firstError.message} ${secondError.message} Try Get answers again shortly.`);
+      }
+    }
+  }
+
   const answers = [];
   for (const batch of batchesOf(plainQuestions)) {
     try {
-      answers.push(...await answerBatch(batch, config));
+      answers.push(...await requestBatch(batch));
     } catch (error) {
       if (!error?.retrySmaller || batch.length === 1 || signal?.aborted) throw error;
       const half = Math.ceil(batch.length / 2);
-      answers.push(...await answerBatch(batch.slice(0, half), config));
-      answers.push(...await answerBatch(batch.slice(half), config));
+      answers.push(...await requestBatch(batch.slice(0, half)));
+      answers.push(...await requestBatch(batch.slice(half)));
     }
   }
   return answers;
