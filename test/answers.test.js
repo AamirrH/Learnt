@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import { createApp } from '../server.js';
+import { DEFAULT_MODEL } from '../gemini.js';
 import { GEMINI_KEY_HEADER } from '../public/gemini-key.js';
 
 const questions = [
@@ -181,7 +182,7 @@ test('retries only the incomplete group as two smaller requests', async (t) => {
 test('reports upstream errors without retrying quota, unavailable service, or blocked content', async (t) => {
   let provider;
   const fetcher = t.mock.fn(() => provider());
-  const post = await startApi(t, { fetcher });
+  const post = await startApi(t, { model: 'custom-test-model', fetcher });
   const key = { [GEMINI_KEY_HEADER]: 'mock-key' };
   provider = () => Response.json({ error: { message: 'Upstream details' } }, { status: 400 });
   const rejected = await post({ questions }, key);
@@ -196,4 +197,48 @@ test('reports upstream errors without retrying quota, unavailable service, or bl
   provider = () => Response.json({ promptFeedback: { blockReason: 'SAFETY' } });
   assert.equal((await post({ questions }, key)).status, 422);
   assert.equal(fetcher.mock.callCount(), 4);
+});
+
+test('switches models after a 503 and keeps the working model for the rest of the quiz', async (t) => {
+  const input = Array.from({ length: 11 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
+  const attempts = [];
+  const post = await startApi(t, { model: DEFAULT_MODEL, fetcher: (url, { headers, body }) => {
+    const model = url.match(/models\/([^:]+):generateContent$/)[1];
+    const payload = JSON.parse(body);
+    const { questions: sent } = JSON.parse(payload.contents[0].parts[0].text);
+    attempts.push([model, sent[0].id, payload.generationConfig.thinkingConfig.thinkingLevel]);
+    assert.equal(headers[GEMINI_KEY_HEADER], 'mock-key');
+    if (model === DEFAULT_MODEL && sent[0].id === 'q6') return Response.json({}, { status: 503 });
+    return providerResponse(sent.map(({ id }) => ({ id, choices: ['B'], explanation: 'Example.' })));
+  } });
+  const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).answers.map(({ id }) => id), input.map(({ id }) => id));
+  assert.deepEqual(attempts, [
+    [DEFAULT_MODEL, 'q1', 'MINIMAL'], [DEFAULT_MODEL, 'q6', 'MINIMAL'],
+    ['gemini-3.8-flash', 'q6', 'LOW'], ['gemini-3.8-flash', 'q11', 'LOW'],
+  ]);
+});
+
+test('tries the alternate after a timeout and reports both failures when it is also unavailable', async (t) => {
+  const fetcher = t.mock.fn((url) => {
+    if (url.includes(DEFAULT_MODEL)) throw new DOMException('Timed out', 'TimeoutError');
+    return Response.json({}, { status: 503 });
+  });
+  const post = await startApi(t, { model: DEFAULT_MODEL, fetcher });
+  const response = await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /gemini-3\.5-flash-lite timed out.*gemini-3\.8-flash is temporarily unavailable \(HTTP 503\)/);
+  assert.equal(fetcher.mock.callCount(), 2);
+});
+
+test('does not switch models on invalid credentials or quota errors', async (t) => {
+  let upstreamStatus;
+  const fetcher = t.mock.fn(() => Response.json({}, { status: upstreamStatus }));
+  const post = await startApi(t, { model: DEFAULT_MODEL, fetcher });
+  for (const status of [403, 429]) {
+    upstreamStatus = status;
+    assert.equal((await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' })).status, status);
+  }
+  assert.equal(fetcher.mock.callCount(), 2);
 });

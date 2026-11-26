@@ -8,7 +8,7 @@ Use Node.js 22 or later. Start the app with `npm start` and open [Learnt on loca
 
 Enter your Gemini API key in the startup prompt to unlock the workspace. You can replace or remove the key from **Gemini key** in the header. Removing it locks the workspace again. After unlocking, **Load example** uses built-in answers. See [Google’s Gemini API key guide](https://ai.google.dev/gemini-api/docs/api-key).
 
-The server uses `gemini-3.8-flash` by default. Set `GEMINI_MODEL` in the same session to use a different model that supports structured output. See [the Gemini model list](https://ai.google.dev/gemini-api/docs/models).
+The server starts with `gemini-3.5-flash-lite`. If it times out or is unavailable, Learnt tries `gemini-3.8-flash` once and uses it for the remaining groups in that request. Set `GEMINI_MODEL` in the same session to choose a different starting model with structured output support. See [the Gemini model list](https://ai.google.dev/gemini-api/docs/models).
 
 ## Review and answer
 
