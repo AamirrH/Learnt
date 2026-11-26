@@ -20,22 +20,22 @@
     </header>
 
     <main class="page-width" id="workspace" inert>
-      <section class="intro" aria-labelledby="page-title">
-        <h1 id="page-title">From paste to <em>answers.</em></h1>
-        <p>Paste a list of multiple-choice questions, remove unnecessary text, and get a colour-coded answer key.</p>
-      </section>
-
-      <ol class="steps" aria-label="Workspace progress">
-        <li id="step-paste" aria-current="step"><span>1</span> Paste</li>
-        <li id="step-review"><span>2</span> Review</li>
-        <li id="step-answers"><span>3</span> Answers</li>
-      </ol>
+      <div class="workspace-heading">
+        <section class="intro" aria-labelledby="page-title">
+          <h1 id="page-title">Quiz workspace</h1>
+          <p>Paste multiple-choice questions and review a colour-coded answer key.</p>
+        </section>
+        <ol class="steps" aria-label="Workspace progress">
+          <li id="step-paste" aria-current="step"><span>1</span> Paste</li>
+          <li id="step-review"><span>2</span> Review</li>
+          <li id="step-answers"><span>3</span> Answers</li>
+        </ol>
+      </div>
 
       <div class="workspace">
         <section class="panel input-panel" aria-labelledby="input-title">
           <div class="panel-header">
-            <span class="panel-icon input-icon" aria-hidden="true">▤</span>
-            <div><h2 id="input-title">Paste questions</h2><p>Add your questions with four options each.</p></div>
+            <h2 id="input-title">Paste questions</h2>
             <button class="quiet-button sample-button" id="load-example" type="button">Load example</button>
           </div>
 
@@ -52,7 +52,7 @@
               <textarea id="exclusions" rows="3" maxlength="60000" spellcheck="false"></textarea>
             </details>
             <div class="input-actions">
-              <button class="primary-button" id="review" type="submit" disabled><span aria-hidden="true">✦</span> Review questions</button>
+              <button class="primary-button" id="review" type="submit" disabled>Review questions</button>
               <button class="quiet-button clear-button" id="clear" type="button" disabled>Clear</button>
             </div>
           </form>
@@ -60,20 +60,20 @@
 
         <section class="panel review-panel" aria-labelledby="review-title">
           <div class="panel-header">
-            <span class="panel-icon review-icon" aria-hidden="true">☷</span>
-            <div><h2 id="review-title">Question preview</h2><p id="review-description">Review your cleaned list before answering.</p></div>
+            <div><h2 id="review-title" tabindex="-1">Question preview</h2><p id="review-description">Review your cleaned list before answering.</p></div>
             <button class="quiet-button" id="copy" type="button" hidden>Copy key</button>
           </div>
 
+          <div class="review-actions" id="review-actions">
+            <button class="primary-button" id="answer" type="button" disabled><span id="answer-label">Get answers</span></button>
+            <p id="answer-note">Review the list to continue.</p>
+          </div>
+          <p class="status" id="status" role="status" aria-live="polite"></p>
+
           <div class="review-body">
             <div class="empty-state" id="empty-state">
-              <div class="empty-art" aria-hidden="true">
-                <div class="paper paper-back"></div>
-                <div class="paper paper-front"><i></i><i></i><i></i></div>
-                <span class="paper-spark">✦</span>
-              </div>
               <h3 id="empty-title">Your questions will appear here</h3>
-              <p id="empty-description">Paste your text and select Review questions to see the cleaned list.</p>
+              <p id="empty-description">Paste your text or load the example, then select Review questions.</p>
             </div>
             <div class="review-content" id="review-content" hidden>
               <p class="result-summary" id="result-summary"></p>
@@ -81,15 +81,9 @@
               <ol class="question-list" id="question-list" aria-label="Cleaned questions"></ol>
             </div>
           </div>
-
-          <div class="review-actions">
-            <button class="primary-button" id="answer" type="button" disabled><span aria-hidden="true">✦</span> <span class="button-label" id="answer-label">Get answers</span></button>
-            <p id="answer-note">Review the list to continue.</p>
-          </div>
         </section>
       </div>
 
-      <p class="status" id="status" role="status" aria-live="polite"></p>
       <footer class="workspace-footer">
         <p>Question cleanup happens in your browser.</p>
         <div class="legend" aria-label="Answer colours">
