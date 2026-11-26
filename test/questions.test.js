@@ -123,3 +123,63 @@ test('preserves point values and exact phrases when they are part of the four ch
   assert.deepEqual(result.questions[0].options, { A: 'Do you understand?', B: 'Go now', C: '2 points', D: '4 points' });
   assert.deepEqual(result.removed, ['1 point']);
 });
+
+test('preserves fenced code in the stem and multiple choices, including marker-shaped code lines', () => {
+  const stemCode = ['```text', 'Question 2', 'A. Example', '', 'Do you understand?.', '```'].join('\n');
+  const choiceB = ['```js', 'const answer = 2;', '', 'console.log(answer);', '```'].join('\n');
+  const choiceD = ['~~~python', 'def answer():', '', '    return 2', '~~~'].join('\n');
+  const source = [
+    '1. Which option describes this example?', '', stemCode, '',
+    'A. An inline example: `A. One B. Two C. Three D. Four`',
+    `B. ${choiceB}`, 'C. Example three', 'D. This function returns a value:', '', choiceD, '',
+    'It returns the integer 2.', '1 point', 'Coursera Honor Code', 'Submit when ready',
+  ].join('\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 1);
+  assert.equal(result.questions[0].stem, `Which option describes this example?\n\n${stemCode}`);
+  assert.deepEqual(result.questions[0].options, {
+    A: 'An inline example: `A. One B. Two C. Three D. Four`',
+    B: choiceB,
+    C: 'Example three',
+    D: `This function returns a value:\n\n${choiceD}\n\nIt returns the integer 2.`,
+  });
+  assert.deepEqual(result.removed, ['1 point\nCoursera Honor Code\nSubmit when ready']);
+});
+
+test('keeps unlabeled code options as single choices after removing filler and excluded text', () => {
+  const fenced = ['````text', 'Optional passage to remove.', '', '```', 'A. Example', '````'].join('\n');
+  const indented = ['    def answer():', '', '        return 3'].join('\n');
+  const tabbed = ['\tconst value = 4;', '', '\tconsole.log(value);'].join('\n');
+  const source = [
+    'Page title', '1.\nQuestion 1\nReview the code sample.', fenced, 'Optional passage\n  to remove.',
+    'Which options are snippets? Select all that apply.\nDo you understand?.',
+    indented, 'Plain text', 'Another choice', `${tabbed}\n1 point`,
+  ].join('\n\n');
+  const result = parseQuestions(source, 'Optional passage to remove.');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].stem, `Review the code sample.\n\n${fenced}\n\nWhich options are snippets? Select all that apply.`);
+  assert.deepEqual(result.questions[0].options, { A: indented, B: 'Plain text', C: 'Another choice', D: tabbed });
+  assert.deepEqual(result.removed, ['Optional passage\n  to remove.', 'Page title', 'Do you understand?.', '1 point']);
+});
+
+test('keeps code attached to option D in unnumbered questions', () => {
+  const source = 'Which answer includes code?\nA. One\nB. Two\nC. Three\nD. Code:\n\n```text\nA. inside code\n```\n\nNext question?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 2);
+  assert.equal(result.questions[0].options.D, 'Code:\n\n```text\nA. inside code\n```');
+});
+
+test('keeps the prose after a fenced final option before the next question', () => {
+  const source = '1. Which statement is true?\nA. One\nB. Two\nC. Three\nD. Code:\n\n```text\nA. inside code\n```\n\nThis is the expected output.\n\n2. Next question?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].options.D, 'Code:\n\n```text\nA. inside code\n```\n\nThis is the expected output.');
+});
+
+test('warns when a missing code fence would hide later questions', () => {
+  const result = parseQuestions('1. What happens?\n```js\nconst value = 1;\n\nA. One\nB. Two\nC. Three\nD. Four');
+  assert.match(result.warnings.join(' '), /missing its closing fence/);
+  assert.deepEqual(result.questions, []);
+});
