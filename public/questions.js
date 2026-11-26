@@ -24,6 +24,7 @@ const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\
 const portalPrompt = /^Do you understand\s*\?\s*\.$/i;
 const portalFooter = /^(?:\d+(?:[.,]\d+)?\s+points?|Coursera Honor Code|Last saved on [^\n]+)[\t ]*(?:\n|$)/i;
 const fenceStart = /^\s*(`{3,}|~{3,})(.*)$/;
+const inlineCode = /(?<!`)(`+)([^`\n]*)\1(?!`)/g;
 
 function indentation(text) {
   return text.match(/^[\t ]*/)[0].replaceAll('\t', '    ').length;
@@ -50,8 +51,9 @@ function tokenize(source) {
         block.push(rawLines[++index]);
         if (closing.test(block.at(-1))) break;
       }
-      if (block.length === 1 || !closing.test(block.at(-1))) unclosedFence = true;
-      lines.push({ text: block.join('\n'), code: true });
+      const fenced = block.length > 1 && closing.test(block.at(-1));
+      if (!fenced) unclosedFence = true;
+      lines.push({ text: block.join('\n'), code: true, fenced });
       continue;
     }
 
@@ -73,6 +75,29 @@ function tokenize(source) {
     lines.push({ text });
   }
   return { lines, unclosedFence };
+}
+
+function plainProse(text) {
+  return text
+    .replace(/(?<![\w*])(\*{1,3})([^\s*](?:[^*]*[^\s*])?)\1(?![\w*])/g, '$2')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '$1 ($2)');
+}
+
+export function toPlainQuizText(source) {
+  return tokenize(source).lines.map((line) => {
+    if (line.fenced) return line.text.split('\n').slice(1, -1).join('\n');
+    if (line.code) return line.text;
+
+    const text = line.text.replace(/^[\t ]{0,3}#{1,6}[\t ]+(?=\S)/, '');
+    const parts = [];
+    let offset = 0;
+    for (const span of text.matchAll(inlineCode)) {
+      parts.push(plainProse(text.slice(offset, span.index)), span[2]);
+      offset = span.index + span[0].length;
+    }
+    parts.push(plainProse(text.slice(offset)));
+    return parts.join('');
+  }).join('\n');
 }
 
 function blank(line) {
@@ -115,7 +140,7 @@ function splitInlineOptions(lines) {
   return lines.flatMap((line) => {
     if (line.code) return [line];
     const { text } = line;
-    const textWithoutCode = text.replace(/(?<!`)(`+)[^`]*\1(?!`)/g, (match) => ' '.repeat(match.length));
+    const textWithoutCode = text.replace(inlineCode, (match) => ' '.repeat(match.length));
     const matches = [...textWithoutCode.matchAll(inlineOptions)];
     const letters = matches.map((match) => (match[2] ?? match[3]).toUpperCase()).join('');
     if (letters !== 'ABCD') return [line];

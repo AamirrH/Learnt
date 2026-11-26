@@ -51,6 +51,27 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
     ['A', 'B', 'C', 'D', 'UNANSWERABLE']);
 });
 
+test('sends JSON with plain-text fields while retaining code and whitespace', async (t) => {
+  const question = {
+    ...questions[0],
+    stem: '# Which **result** does `square(2)` produce?\n\n```python\n# Keep this comment\ndef square(n):\n\n    return n ** 2\n```',
+    options: { A: '*Two*', B: '~~~text\n    4\n~~~', C: '`__init__`', D: '    8' },
+  };
+  let upstream;
+  const post = await startApi(t, { fetcher: (_url, { headers, body }) => {
+    upstream = { headers, body: JSON.parse(body) };
+    return providerResponse([{ id: question.id, choices: ['B'], explanation: 'The result is four.' }]);
+  } });
+  const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  assert.equal(upstream.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(upstream.body.contents[0].parts[0].text), { questions: [{
+    id: question.id,
+    stem: 'Which result does square(2) produce?\n\n# Keep this comment\ndef square(n):\n\n    return n ** 2',
+    options: { A: 'Two', B: '    4', C: '__init__', D: '    8' },
+  }] });
+});
+
 test('rejects duplicate Gemini answers so one question cannot receive another answer', async (t) => {
   const answer = { id: 'q1', choices: ['B'], explanation: 'Example.' };
   const post = await startApi(t, { fetcher: () => providerResponse([answer, answer]) });
