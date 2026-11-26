@@ -90,6 +90,35 @@ test('reads copied quiz headings once and labels options separated by blank para
   assert.deepEqual(result.questions[1].options, { A: 'Alpha', B: 'Beta', C: 'Gamma', D: 'Delta' });
 });
 
+test('reads copied answer keys with bare option letters, code, and review metadata', () => {
+  const code = ['~~~text', 'Question 42', 'A', 'Answer', '~~~'].join('\n');
+  const optionCode = ['```python', 'print("Answer")', '```'].join('\n');
+  const source = [
+    '17.', 'Which phrase appears in the block?', '', code, '',
+    'A', 'Question 42', 'B', '1 point', 'C', 'A. This is data', 'D', 'Do you understand?.',
+    'Answer', 'This was the previous explanation.', '',
+    '18.', 'Which snippet prints a value?', 'A', 'One', 'Answer', 'B', 'Two', 'C', 'Three',
+    'D', optionCode, 'This was another previous explanation.',
+  ].join('\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions.map(({ number, stem, options }) => ({ number, stem, options })), [
+    { number: '17', stem: `Which phrase appears in the block?\n\n${code}`,
+      options: { A: 'Question 42', B: '1 point', C: 'A. This is data', D: 'Do you understand?.' } },
+    { number: '18', stem: 'Which snippet prints a value?', options: { A: 'One', B: 'Two', C: 'Three', D: optionCode } },
+  ]);
+  assert.deepEqual(result.removed, ['Answer\nThis was the previous explanation.', 'Answer', 'This was another previous explanation.']);
+});
+
+test('keeps multiline options when repasting a preview with bare option letters', () => {
+  const source = '1.\nWhich wording matches?\nA\nAnswer\nB\nTwo\nC\nThree\nD\nFirst line\nSecond line\n\n2. Next?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 2);
+  assert.deepEqual(result.questions[0].options, { A: 'Answer', B: 'Two', C: 'Three', D: 'First line\nSecond line' });
+  assert.deepEqual(result.removed, []);
+});
+
 test('preserves context through the answer instruction and removes text after the four options', () => {
   const source = '4. Read this scenario.\n\nWhich response works? Select the best answer.\n\nOne\n\nTwo\n\nThree\n\nFour\n\nEnd of preview';
   const result = parseQuestions(source);
