@@ -2,9 +2,9 @@ export const LETTERS = Object.freeze(['A', 'B', 'C', 'D']);
 export const MAX_QUESTIONS = 50;
 export const MAX_SOURCE_LENGTH = 60_000;
 
-const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})[.):]\s*)(.*)$/i;
-const optionAtStart = /^\s*(?:\(([A-D])\)|([A-D])[.):])\s*(.*)$/i;
-const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])[.):])(?=\s|$)/gi;
+const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})(?:[.):]\s*|\s+[-–]\s*))(.*)$/i;
+const optionAtStart = /^\s*(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))\s*(.*)$/i;
+const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/gi;
 
 function splitInlineOptions(lines) {
   return lines.flatMap((line) => {
@@ -104,15 +104,24 @@ export function parseQuestions(source, exclusions = '') {
   const normalized = source.replace(/\r\n?/g, '\n');
   const targets = new Set(paragraphs(exclusions.replace(/\r\n?/g, '\n')));
   const matched = new Set();
+  let protectedParagraphCount = 0;
   const cleaned = normalized.split(/(\n[\t ]*\n+)/).map((part, index) => {
     if (index % 2 || !targets.has(part.trim())) return part;
     matched.add(part.trim());
+    if (splitInlineOptions(part.split('\n')).some((line) => questionStart.test(line) || optionAtStart.test(line))) {
+      protectedParagraphCount += 1;
+      return part;
+    }
     removed.push(part.trim());
     return '';
   }).join('');
 
   const { sections, prefix } = splitQuestions(cleaned.split('\n'));
-  removed.push(...paragraphs(prefix.join('\n')));
+  if (splitInlineOptions(prefix).some((line) => optionAtStart.test(line))) {
+    warnings.push('Some options appear before the first numbered question. Add a number to every question to include the whole list.');
+  } else {
+    removed.push(...paragraphs(prefix.join('\n')));
+  }
   for (const [index, section] of sections.entries()) {
     const entry = readSection(section, index);
     if (entry.issue) {
@@ -123,6 +132,7 @@ export function parseQuestions(source, exclusions = '') {
     }
   }
 
+  if (protectedParagraphCount) warnings.push('An excluded paragraph contains a question or option label. Narrow the exclusion to the surrounding text.');
   if (matched.size !== targets.size) warnings.push('Some excluded paragraphs could not be found. Copy each paragraph exactly as pasted.');
   if (!sections.length) warnings.push('No questions found. Use A, B, C, and D labels for each set of options.');
   if (sections.length > MAX_QUESTIONS) warnings.push(`Review at most ${MAX_QUESTIONS} questions at a time.`);

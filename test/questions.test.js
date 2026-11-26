@@ -32,3 +32,24 @@ test('assigns numbers to unnumbered sets separated by a blank line', () => {
   assert.deepEqual(result.warnings, []);
   assert.deepEqual(result.questions.map(({ number, stem }) => [number, stem]), [['1', 'First?'], ['2', 'Second?']]);
 });
+
+test('accepts dash labels without losing the question number or options', () => {
+  const result = parseQuestions('21 - First? A - One B - Two C - Three D - Four');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].number, '21');
+  assert.equal(result.questions[0].options.D, 'Four');
+});
+
+test('reports a set of options before the first numbered question', () => {
+  const result = parseQuestions('First? A. One B. Two C. Three D. Four\n\n9. Second? A. One B. Two C. Three D. Four');
+  assert.match(result.warnings[0], /before the first numbered question/);
+  assert.deepEqual(result.removed, []);
+});
+
+test('keeps a question when an exclusion contains its labels', () => {
+  const source = '4. Which?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source, source);
+  assert.equal(result.questions.length, 1);
+  assert.match(result.warnings[0], /contains a question or option label/);
+  assert.deepEqual(result.removed, []);
+});
