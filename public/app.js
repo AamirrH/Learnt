@@ -1,4 +1,5 @@
 import { distinguishingPrefixEnd, LETTERS, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
+import { GEMINI_KEY_HEADER, isGeminiKeyInput } from './gemini-key.js';
 
 const example = `Practice quiz · General science
 This worksheet is for personal revision. Choose one answer for each question.
@@ -34,11 +35,14 @@ const ids = [
   'step-paste', 'step-review', 'step-answers', 'review-title', 'review-description',
   'empty-state', 'review-content', 'result-summary', 'issues', 'removed', 'removed-summary',
   'removed-list', 'question-list', 'answer', 'answer-label', 'answer-note', 'copy', 'status',
+  'manage-key', 'key-dialog', 'key-form', 'key-input', 'remove-key', 'cancel-key', 'save-key',
 ];
 const ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
 let review = null;
 let answers = null;
 let pending = null;
+let geminiKey = '';
+let answerAfterKey = false;
 
 function element(tag, content, className) {
   const node = document.createElement(tag);
@@ -96,6 +100,7 @@ function render() {
   }
 
   ui['source-count'].textContent = plural(ui.source.value.length, 'character');
+  ui['manage-key'].textContent = geminiKey ? 'Gemini key added' : 'Add Gemini key';
   ui.review.disabled = !ui.source.value.trim();
   ui.clear.disabled = !ui.source.value && !ui.exclusions.value;
   ui['empty-state'].hidden = Boolean(review);
@@ -117,7 +122,7 @@ function render() {
   else if (exampleLoaded) ui['answer-note'].textContent = answers ? 'Example answer key ready.' : 'Uses built-in example answers.';
   else if (answers) ui['answer-note'].textContent = 'Answer key ready.';
   else if (pending) ui['answer-note'].textContent = 'Waiting for Gemini.';
-  else ui['answer-note'].textContent = 'Sends the reviewed questions to Gemini.';
+  else ui['answer-note'].textContent = geminiKey ? 'Uses your Gemini API key.' : 'Requires your Gemini API key.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
   ui.issues.hidden = !review.warnings.length;
   ui.issues.replaceChildren(...review.warnings.map((issue) => element('li', issue)));
@@ -129,18 +134,62 @@ function render() {
   ui['question-list'].replaceChildren(...review.questions.map((question) => questionCard(question, byId.get(question.id))));
 }
 
-function invalidateReview() {
+function cancelPendingAnswer() {
   pending?.abort();
   pending = null;
+}
+
+function invalidateReview() {
+  cancelPendingAnswer();
   review = null;
   answers = null;
   announce();
   render();
 }
 
+function openKeyDialog(continueToAnswers = false) {
+  answerAfterKey = continueToAnswers;
+  ui['key-input'].value = '';
+  ui['key-input'].setCustomValidity('');
+  ui['remove-key'].hidden = !geminiKey;
+  ui['save-key'].textContent = continueToAnswers ? 'Use key and get answers' : geminiKey ? 'Replace key' : 'Use key';
+  ui['key-dialog'].showModal();
+}
+
+function setGeminiKey(key) {
+  if (geminiKey !== key) cancelPendingAnswer();
+  geminiKey = key;
+  ui['key-dialog'].close();
+  render();
+}
+
 ui.source.maxLength = MAX_SOURCE_LENGTH;
 ui.source.addEventListener('input', invalidateReview);
 ui.exclusions.addEventListener('input', invalidateReview);
+
+ui['manage-key'].addEventListener('click', () => openKeyDialog());
+ui['key-input'].addEventListener('input', () => ui['key-input'].setCustomValidity(''));
+ui['cancel-key'].addEventListener('click', () => ui['key-dialog'].close());
+ui['key-dialog'].addEventListener('close', () => {
+  if (!ui['key-dialog'].open) ui['key-input'].value = '';
+});
+ui['remove-key'].addEventListener('click', () => {
+  setGeminiKey('');
+  announce('Gemini key removed from this tab.');
+});
+ui['key-form'].addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = ui['key-input'];
+  const key = input.value.trim();
+  if (!isGeminiKeyInput(key)) {
+    input.setCustomValidity('Paste a valid Gemini API key without spaces.');
+    input.reportValidity();
+    return;
+  }
+  setGeminiKey(key);
+  if (answerAfterKey) void requestAnswers();
+  else announce('Gemini key added for this tab.');
+});
 
 ui['load-example'].addEventListener('click', () => {
   ui.source.value = example;
@@ -160,8 +209,7 @@ ui.clear.addEventListener('click', () => {
 ui['paste-form'].addEventListener('submit', (event) => {
   event.preventDefault();
   if (!ui.source.value.trim()) return;
-  pending?.abort();
-  pending = null;
+  cancelPendingAnswer();
   review = parseQuestions(ui.source.value, ui.exclusions.value);
   answers = null;
   ui.removed.open = false;
@@ -170,12 +218,16 @@ ui['paste-form'].addEventListener('submit', (event) => {
   announce(review.warnings.length ? `${message} Check the review notes.` : message);
 });
 
-ui.answer.addEventListener('click', async () => {
+async function requestAnswers() {
   if (!review?.questions.length || review.warnings.length || pending || answers) return;
   if (isExample()) {
     answers = exampleAnswers;
     render();
     announce('Example answer key ready.');
+    return;
+  }
+  if (!geminiKey) {
+    openKeyDialog(true);
     return;
   }
 
@@ -187,9 +239,10 @@ ui.answer.addEventListener('click', async () => {
   try {
     const response = await fetch('/api/answers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', [GEMINI_KEY_HEADER]: geminiKey },
       body: JSON.stringify({ questions }),
       signal: request.signal,
+      redirect: 'error',
     });
     const result = await response.json();
     if (pending !== request) return;
@@ -207,7 +260,9 @@ ui.answer.addEventListener('click', async () => {
       render();
     }
   }
-});
+}
+
+ui.answer.addEventListener('click', requestAnswers);
 
 ui.copy.addEventListener('click', async () => {
   const byId = new Map(answers.map((answer) => [answer.id, answer.choice]));

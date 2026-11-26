@@ -15,7 +15,7 @@
           <span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span>Learnt<span class="brand-period">.</span></span>
         </a>
-        <span class="header-label">MCQ workspace</span>
+        <button class="quiet-button" id="manage-key" type="button" aria-haspopup="dialog">Add Gemini key</button>
       </div>
     </header>
 
@@ -101,5 +101,20 @@
         </div>
       </footer>
     </main>
+
+    <dialog class="key-dialog" id="key-dialog" aria-labelledby="key-title" aria-describedby="key-description">
+      <form id="key-form" method="dialog" autocomplete="off">
+        <h2 id="key-title">Gemini API key</h2>
+        <p id="key-description">Use your own key to generate answers. Learnt keeps it in this tab until you refresh or remove it.</p>
+        <label for="key-input">API key</label>
+        <input id="key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required autofocus>
+        <a class="key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a key from Google AI Studio</a>
+        <div class="key-actions">
+          <button class="quiet-button key-remove" id="remove-key" type="button" hidden>Remove key</button>
+          <button class="quiet-button" id="cancel-key" type="button">Cancel</button>
+          <button class="primary-button" id="save-key" type="submit">Use key</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>
