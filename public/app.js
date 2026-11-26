@@ -33,7 +33,7 @@ const exampleAnswers = [
 const ids = [
   'paste-form', 'source', 'exclusions', 'source-count', 'load-example', 'review', 'clear',
   'step-paste', 'step-review', 'step-answers', 'review-title', 'review-description',
-  'empty-state', 'review-content', 'result-summary', 'issues', 'question-list',
+  'empty-state', 'review-actions', 'review-content', 'result-summary', 'issues', 'question-list',
   'answer', 'answer-label', 'answer-note', 'copy', 'status',
   'workspace', 'manage-key', 'key-dialog', 'key-description', 'key-form', 'key-input', 'remove-key', 'cancel-key', 'save-key',
 ];
@@ -109,6 +109,7 @@ function render() {
   ui.review.disabled = !ui.source.value.trim();
   ui.clear.disabled = !ui.source.value && !ui.exclusions.value;
   ui['empty-state'].hidden = Boolean(review);
+  ui['review-actions'].hidden = Boolean(answers);
   ui['review-content'].hidden = !review;
   ui.copy.hidden = !answers;
   ui['review-title'].textContent = answers ? 'Answer key' : 'Question preview';
@@ -124,8 +125,7 @@ function render() {
   if (!review) return;
 
   if (review.warnings.length) ui['answer-note'].textContent = 'Resolve the review notes to continue.';
-  else if (exampleLoaded) ui['answer-note'].textContent = answers ? 'Example answer key ready.' : 'Uses built-in example answers.';
-  else if (answers) ui['answer-note'].textContent = 'Answer key ready.';
+  else if (exampleLoaded) ui['answer-note'].textContent = 'Uses built-in example answers.';
   else if (pending) ui['answer-note'].textContent = 'Sending questions in small groups.';
   else ui['answer-note'].textContent = 'Uses your Gemini API key.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
@@ -230,6 +230,7 @@ ui['paste-form'].addEventListener('submit', (event) => {
   review = parseQuestions(ui.source.value, ui.exclusions.value);
   answers = null;
   render();
+  ui['review-title'].focus();
   const message = `${plural(review.questions.length, 'question')} found. ${plural(review.removed.length, 'paragraph')} removed.`;
   announce(review.warnings.length ? `${message} Check the review notes.` : message);
 });
