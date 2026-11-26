@@ -23,19 +23,19 @@ button:disabled { cursor: default; }
 :focus-visible { outline: 3px solid #457ee1; outline-offset: 3px; }
 
 .page-width { width: min(100% - 64px, 1240px); margin-inline: auto; }
-.site-header { border-bottom: 3px solid #5d99ef; background: var(--navy); }
+.site-header { border-bottom: 1px solid var(--line); background: var(--surface); }
 .header-inner { min-height: 65px; display: flex; align-items: center; justify-content: space-between; }
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  color: #fff;
+  color: var(--navy);
   font-size: 1.4rem;
   font-weight: 750;
   letter-spacing: -.035em;
   text-decoration: none;
 }
-.brand-period { color: #96c9ff; }
+.brand-period { color: var(--accent); }
 .brand-icon {
   display: grid;
   grid-template: repeat(2, 6px) / repeat(2, 6px);
@@ -43,12 +43,12 @@ button:disabled { cursor: default; }
   place-content: center;
   width: 32px;
   height: 32px;
-  border: 1px solid #80a5d7;
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: #27476f;
+  background: var(--blue-wash);
 }
-.brand-icon i { border: 1px solid #c8e0ff; border-radius: 1px; }
-.brand-icon i:nth-child(2) { background: #a8d0ff; }
+.brand-icon i { border: 1px solid var(--accent); border-radius: 1px; }
+.brand-icon i:nth-child(2) { background: var(--accent); }
 
 .workspace-heading {
   display: flex;
@@ -145,10 +145,6 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 .quiet-button:not(:disabled):hover { background: #dceafe; }
 .quiet-button:disabled { color: #657998; }
 .clear-button { border-color: transparent; background: transparent; }
-#manage-key { border-color: #7295c4; color: #f3f8ff; background: #27476f; }
-#manage-key:not(:disabled):hover { background: #355884; }
-#manage-key:disabled { color: #b7c9df; }
-
 .review-panel { min-height: 510px; background: var(--surface); }
 .review-actions {
   min-height: 65px;
