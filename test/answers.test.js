@@ -94,6 +94,25 @@ test('rejects invalid requests and reports a missing key without calling Gemini'
   assert.equal(fetcher.mock.callCount(), 0);
 });
 
+test('accepts answer requests only from the configured HTTPS origin when hosted', async (t) => {
+  const publicOrigin = 'https://learnt-roan.vercel.app';
+  const host = new URL(publicOrigin).host;
+  const answer = { id: 'q1', choices: ['B'], explanation: 'Mars appears red.' };
+  const fetcher = t.mock.fn(() => providerResponse([answer]));
+  const post = await startApi(t, { fetcher, publicOrigin });
+  const body = { questions: [questions[0]] };
+  const headers = { Host: host, Origin: publicOrigin, [GEMINI_KEY_HEADER]: 'mock-key' };
+
+  const response = await post(body, headers);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).answers[0].choice, 'B');
+  assert.equal((await post(body, { ...headers, Origin: `http://${host}` })).status, 403);
+  assert.equal((await post(body, { ...headers, Origin: 'https://different.example' })).status, 403);
+  assert.equal((await post(body, { ...headers, Host: 'different.example' })).status, 403);
+  assert.equal((await post(body, { Host: host, [GEMINI_KEY_HEADER]: 'mock-key' })).status, 403);
+  assert.equal(fetcher.mock.callCount(), 1);
+});
+
 test('uses each caller’s key for its own answer request without retaining it', async (t) => {
   const fetcher = t.mock.fn((_url, { headers }) => {
     const choice = headers[GEMINI_KEY_HEADER] === 'mock-key-one' ? 'A' : 'B';

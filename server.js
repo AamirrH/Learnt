@@ -61,11 +61,14 @@ async function readQuestions(request) {
   });
 }
 
-async function handleAnswers(request, response, gemini) {
+async function handleAnswers(request, response, gemini, publicOrigin) {
   const host = request.headers.host;
   const origin = request.headers.origin;
-  if (!localHost.test(host) || (origin && origin !== `http://${host}`)) {
-    sendJson(response, 403, { error: 'Open Learnt from its local address to request answers.' });
+  const allowedOrigin = publicOrigin
+    ? origin === publicOrigin && `https://${host}` === publicOrigin
+    : localHost.test(host) && (!origin || origin === `http://${host}`);
+  if (!allowedOrigin) {
+    sendJson(response, 403, { error: 'Open Learnt from its configured address to request answers.' });
     return;
   }
   if (request.headers['content-type']?.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
@@ -92,11 +95,23 @@ async function handleAnswers(request, response, gemini) {
   }
 }
 
-export function createApp({ model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch } = {}) {
+export function createAnswerHandler({ model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch, publicOrigin } = {}) {
+  return async (request, response) => {
+    if (request.method !== 'POST') {
+      response.setHeader('Allow', 'POST');
+      sendJson(response, 405, { error: 'Send a POST request to request answers.' });
+      return;
+    }
+    await handleAnswers(request, response, { model, fetcher }, publicOrigin);
+  };
+}
+
+export function createApp(options) {
+  const answer = createAnswerHandler(options);
   return createServer(async (request, response) => {
     const path = request.url.split('?', 1)[0];
     if (path === '/api/answers' && request.method === 'POST') {
-      await handleAnswers(request, response, { model, fetcher });
+      await answer(request, response);
       return;
     }
     const asset = request.method === 'GET' && assets.get(path);
