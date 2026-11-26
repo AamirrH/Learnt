@@ -33,8 +33,8 @@ const exampleAnswers = [
 const ids = [
   'paste-form', 'source', 'exclusions', 'source-count', 'load-example', 'review', 'clear',
   'step-paste', 'step-review', 'step-answers', 'review-title', 'review-description',
-  'empty-state', 'review-content', 'result-summary', 'issues', 'removed', 'removed-summary',
-  'removed-list', 'question-list', 'answer', 'answer-label', 'answer-note', 'copy', 'status',
+  'empty-state', 'review-content', 'result-summary', 'issues', 'question-list',
+  'answer', 'answer-label', 'answer-note', 'copy', 'status',
   'workspace', 'manage-key', 'key-dialog', 'key-description', 'key-form', 'key-input', 'remove-key', 'cancel-key', 'save-key',
 ];
 const ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
@@ -63,11 +63,16 @@ function isExample() {
   return ui.source.value.trim() === example && !ui.exclusions.value.trim();
 }
 
+function selectedOptions(answer) {
+  return answer?.choices ?? (LETTERS.includes(answer?.choice) ? [answer.choice] : []);
+}
+
 function questionCard(question, answer) {
   const card = element('li', '', 'question-card');
   const heading = element('h3');
   heading.append(element('span', `${question.number}.`, 'question-number'), element('span', question.stem));
   const options = element('ul', '', 'option-list');
+  const selected = selectedOptions(answer);
 
   for (const letter of LETTERS) {
     const option = element('li', '', 'option');
@@ -75,7 +80,7 @@ function questionCard(question, answer) {
     const wording = question.options[letter];
     const text = element('span', wording, 'option-text');
     option.append(element('strong', letter, 'option-label'), text);
-    if (answer?.choice === letter) {
+    if (selected.includes(letter)) {
       const alternatives = LETTERS.filter((other) => other !== letter).map((other) => question.options[other]);
       const end = distinguishingPrefixEnd(wording, alternatives);
       text.replaceChildren(element('mark', wording.slice(0, end), 'answer-highlight'), wording.slice(end));
@@ -121,14 +126,12 @@ function render() {
   if (review.warnings.length) ui['answer-note'].textContent = 'Resolve the review notes to continue.';
   else if (exampleLoaded) ui['answer-note'].textContent = answers ? 'Example answer key ready.' : 'Uses built-in example answers.';
   else if (answers) ui['answer-note'].textContent = 'Answer key ready.';
-  else if (pending) ui['answer-note'].textContent = 'Waiting for Gemini.';
+  else if (pending) ui['answer-note'].textContent = 'Sending questions in small groups.';
   else ui['answer-note'].textContent = 'Uses your Gemini API key.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
+  if (review.removed.length) ui['result-summary'].textContent += ` · ${plural(review.removed.length, 'paragraph')} removed`;
   ui.issues.hidden = !review.warnings.length;
   ui.issues.replaceChildren(...review.warnings.map((issue) => element('li', issue)));
-  ui.removed.hidden = !review.removed.length;
-  ui['removed-summary'].textContent = `${plural(review.removed.length, 'paragraph')} removed`;
-  ui['removed-list'].replaceChildren(...review.removed.map((paragraph) => element('li', paragraph)));
 
   const byId = new Map(answers?.map((answer) => [answer.id, answer]));
   ui['question-list'].replaceChildren(...review.questions.map((question) => questionCard(question, byId.get(question.id))));
@@ -226,7 +229,6 @@ ui['paste-form'].addEventListener('submit', (event) => {
   cancelPendingAnswer();
   review = parseQuestions(ui.source.value, ui.exclusions.value);
   answers = null;
-  ui.removed.open = false;
   render();
   const message = `${plural(review.questions.length, 'question')} found. ${plural(review.removed.length, 'paragraph')} removed.`;
   announce(review.warnings.length ? `${message} Check the review notes.` : message);
@@ -275,11 +277,10 @@ async function requestAnswers() {
 ui.answer.addEventListener('click', requestAnswers);
 
 ui.copy.addEventListener('click', async () => {
-  const byId = new Map(answers.map((answer) => [answer.id, answer.choice]));
+  const byId = new Map(answers.map((answer) => [answer.id, answer]));
   const key = review.questions.map(({ id, number, options }) => {
-    const choice = byId.get(id);
-    const answer = choice === 'UNANSWERABLE' ? 'Unanswered' : `${choice}. ${options[choice]}`;
-    return `${number}. ${answer}`;
+    const wording = selectedOptions(byId.get(id)).map((choice) => `${choice}. ${options[choice]}`).join('\n   ');
+    return `${number}. ${wording || 'Unanswered'}`;
   }).join('\n');
   try {
     await navigator.clipboard.writeText(key);

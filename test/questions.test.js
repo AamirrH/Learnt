@@ -72,3 +72,114 @@ test('keeps a question when an exclusion contains its labels', () => {
   assert.match(result.warnings[0], /contains a question or option label/);
   assert.deepEqual(result.removed, []);
 });
+
+test('reads copied quiz headings once and labels options separated by blank paragraphs', () => {
+  const source = [
+    '1.', '  ', 'Question 1', 'Which tool works? Select the best answer.', '\u00a0',
+    'First', '', 'Second with', 'a wrapped line', '', 'Third', '', 'Fourth', '',
+    '2. Question 2 Which tools work? Select all that apply.', '',
+    'Alpha', '', 'Beta', '', 'Gamma', '', 'Delta',
+  ].join('\r\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions.map(({ id, number, stem }) => [id, number, stem]), [
+    ['q1', '1', 'Which tool works? Select the best answer.'],
+    ['q2', '2', 'Which tools work? Select all that apply.'],
+  ]);
+  assert.deepEqual(result.questions[0].options, { A: 'First', B: 'Second with\na wrapped line', C: 'Third', D: 'Fourth' });
+  assert.deepEqual(result.questions[1].options, { A: 'Alpha', B: 'Beta', C: 'Gamma', D: 'Delta' });
+});
+
+test('preserves context through the answer instruction and removes text after the four options', () => {
+  const source = '4. Read this scenario.\n\nWhich response works? Select the best answer.\n\nOne\n\nTwo\n\nThree\n\nFour\n\nEnd of preview';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].stem, 'Read this scenario.\n\nWhich response works? Select the best answer.');
+  assert.deepEqual(result.removed, ['End of preview']);
+  assert.match(parseQuestions(source.split('\n\nFour')[0]).warnings[0], /Question 4 needs/);
+});
+
+test('removes course page text, quiz prompts, and score metadata before assigning choices', () => {
+  const result = parseQuestions([
+    'Course overview\nComplete two items today.',
+    'Assignment details\nDue next week',
+    '1.\nQuestion 1\nWhich colour works? Select the best answer.',
+    'Do you understand?.', 'Red', 'Green', 'Blue', 'Gold',
+    '0.5 points\nCoursera Honor Code\nSubmission notice',
+  ].join('\n\n'));
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 1);
+  assert.deepEqual(result.questions[0].options, { A: 'Red', B: 'Green', C: 'Blue', D: 'Gold' });
+  assert.deepEqual(result.removed, [
+    'Course overview\nComplete two items today.', 'Assignment details\nDue next week',
+    'Do you understand?.', '0.5 points\nCoursera Honor Code\nSubmission notice',
+  ]);
+});
+
+test('preserves point values and exact phrases when they are part of the four choices', () => {
+  const source = '1. Which phrase or value was given? Select the best answer.\n\nDo you understand?\n\nGo now\n\n2 points\n\n4 points\n\n1 point';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions[0].options, { A: 'Do you understand?', B: 'Go now', C: '2 points', D: '4 points' });
+  assert.deepEqual(result.removed, ['1 point']);
+});
+
+test('preserves fenced code in the stem and multiple choices, including marker-shaped code lines', () => {
+  const stemCode = ['```text', 'Question 2', 'A. Example', '', 'Do you understand?.', '```'].join('\n');
+  const choiceB = ['```js', 'const answer = 2;', '', 'console.log(answer);', '```'].join('\n');
+  const choiceD = ['~~~python', 'def answer():', '', '    return 2', '~~~'].join('\n');
+  const source = [
+    '1. Which option describes this example?', '', stemCode, '',
+    'A. An inline example: `A. One B. Two C. Three D. Four`',
+    `B. ${choiceB}`, 'C. Example three', 'D. This function returns a value:', '', choiceD, '',
+    'It returns the integer 2.', '1 point', 'Coursera Honor Code', 'Submit when ready',
+  ].join('\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 1);
+  assert.equal(result.questions[0].stem, `Which option describes this example?\n\n${stemCode}`);
+  assert.deepEqual(result.questions[0].options, {
+    A: 'An inline example: `A. One B. Two C. Three D. Four`',
+    B: choiceB,
+    C: 'Example three',
+    D: `This function returns a value:\n\n${choiceD}\n\nIt returns the integer 2.`,
+  });
+  assert.deepEqual(result.removed, ['1 point\nCoursera Honor Code\nSubmit when ready']);
+});
+
+test('keeps unlabeled code options as single choices after removing filler and excluded text', () => {
+  const fenced = ['````text', 'Optional passage to remove.', '', '```', 'A. Example', '````'].join('\n');
+  const indented = ['    def answer():', '', '        return 3'].join('\n');
+  const tabbed = ['\tconst value = 4;', '', '\tconsole.log(value);'].join('\n');
+  const source = [
+    'Page title', '1.\nQuestion 1\nReview the code sample.', fenced, 'Optional passage\n  to remove.',
+    'Which options are snippets? Select all that apply.\nDo you understand?.',
+    indented, 'Plain text', 'Another choice', `${tabbed}\n1 point`,
+  ].join('\n\n');
+  const result = parseQuestions(source, 'Optional passage to remove.');
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].stem, `Review the code sample.\n\n${fenced}\n\nWhich options are snippets? Select all that apply.`);
+  assert.deepEqual(result.questions[0].options, { A: indented, B: 'Plain text', C: 'Another choice', D: tabbed });
+  assert.deepEqual(result.removed, ['Optional passage\n  to remove.', 'Page title', 'Do you understand?.', '1 point']);
+});
+
+test('keeps code attached to option D in unnumbered questions', () => {
+  const source = 'Which answer includes code?\nA. One\nB. Two\nC. Three\nD. Code:\n\n```text\nA. inside code\n```\n\nNext question?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 2);
+  assert.equal(result.questions[0].options.D, 'Code:\n\n```text\nA. inside code\n```');
+});
+
+test('keeps the prose after a fenced final option before the next question', () => {
+  const source = '1. Which statement is true?\nA. One\nB. Two\nC. Three\nD. Code:\n\n```text\nA. inside code\n```\n\nThis is the expected output.\n\n2. Next question?\nA. One\nB. Two\nC. Three\nD. Four';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].options.D, 'Code:\n\n```text\nA. inside code\n```\n\nThis is the expected output.');
+});
+
+test('warns when a missing code fence would hide later questions', () => {
+  const result = parseQuestions('1. What happens?\n```js\nconst value = 1;\n\nA. One\nB. Two\nC. Three\nD. Four');
+  assert.match(result.warnings.join(' '), /missing its closing fence/);
+  assert.deepEqual(result.questions, []);
+});

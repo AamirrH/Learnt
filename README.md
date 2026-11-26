@@ -12,11 +12,13 @@ The server uses `gemini-3.8-flash` by default. Set `GEMINI_MODEL` in the same se
 
 ## Review and answer
 
-1. Paste up to 50 questions with four options labeled A through D. Use numbered questions throughout, or put a blank line between each unnumbered question.
-2. Select **Review questions**. For numbered input, Learnt treats text above the first question and separate paragraphs after option D as surrounding material. Check the removed paragraphs in the preview. Keep any passage a question needs within that question’s stem. Use **Exclude specific paragraphs** to remove any other complete, blank-line-delimited paragraphs by exact text.
-3. Select **Get answers** to send the reviewed question stems and options to Gemini. The answer key highlights the selected option and includes a brief explanation. Questions without sufficient context can appear as **Unanswered**. Use **Copy key** for a compact list.
+1. Paste up to 50 questions with four options each. Labels A through D are optional for numbered questions when the question text and each option are separated by blank lines. Repeated headers like `1.` followed by `Question 1` count as one question.
+2. Select **Review questions**. Learnt strips surrounding page text and common quiz interface prompts. The preview shows a removal count alongside the cleaned questions and options. Keep passages a question needs within its stem. Use **Exclude specific paragraphs** for other complete, blank-line-delimited passages. Learnt matches prose across changes in spacing and line wrapping.
+3. Select **Get answers** to send the reviewed question stems and options to Gemini as plain text in JSON. Learnt splits longer lists into small groups automatically and combines the results in the original order. The answer key highlights each selected option and includes a brief explanation. Questions marked “Select all that apply” can have multiple answers. Questions without sufficient context can appear as **Unanswered**. Use **Copy key** for a compact list.
 
 Question cleanup runs in the browser. Learnt keeps the key in tab memory until you refresh or remove it. The local server forwards it to Gemini with each answer request. Usage draws on the Google project associated with the key. Learnt doesn't save the pasted text or answer key between sessions.
+
+Code fenced with triple backticks or tildes, or indented with four spaces or a tab, keeps its indentation and blank lines. Use A–D labels when options have several paragraphs or consecutive indented snippets.
 
 ## Tests
 

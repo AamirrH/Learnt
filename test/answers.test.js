@@ -35,7 +35,7 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
   const post = await startApi(t, {
     fetcher(url, options) {
       upstream = { url, ...options, body: JSON.parse(options.body) };
-      return providerResponse([...expected].reverse());
+      return providerResponse([...expected].reverse().map(({ choice, ...answer }) => ({ ...answer, choices: [choice] })));
     },
   });
 
@@ -47,12 +47,34 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
   assert.deepEqual(JSON.parse(upstream.body.contents[0].parts[0].text), {
     questions: questions.map(({ id, stem, options }) => ({ id, stem, options })),
   });
-  assert.deepEqual(upstream.body.generationConfig.responseJsonSchema.properties.answers.items.properties.choice.enum,
+  assert.equal(upstream.body.generationConfig.responseFormat.text.mimeType, 'APPLICATION_JSON');
+  assert.deepEqual(upstream.body.generationConfig.responseFormat.text.schema.properties.answers.items.properties.choices.items.enum,
     ['A', 'B', 'C', 'D', 'UNANSWERABLE']);
 });
 
+test('sends JSON with plain-text fields while retaining code and whitespace', async (t) => {
+  const question = {
+    ...questions[0],
+    stem: '# Which **result** does `square(2)` produce?\n\n```python\n# Keep this comment\ndef square(n):\n\n    return n ** 2\n```',
+    options: { A: '*Two*', B: '~~~text\n    4\n~~~', C: '`__init__`', D: '    8' },
+  };
+  let upstream;
+  const post = await startApi(t, { fetcher: (_url, { headers, body }) => {
+    upstream = { headers, body: JSON.parse(body) };
+    return providerResponse([{ id: question.id, choices: ['B'], explanation: 'The result is four.' }]);
+  } });
+  const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  assert.equal(upstream.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(upstream.body.contents[0].parts[0].text), { questions: [{
+    id: question.id,
+    stem: 'Which result does square(2) produce?\n\n# Keep this comment\ndef square(n):\n\n    return n ** 2',
+    options: { A: 'Two', B: '    4', C: '__init__', D: '    8' },
+  }] });
+});
+
 test('rejects duplicate Gemini answers so one question cannot receive another answer', async (t) => {
-  const answer = { id: 'q1', choice: 'B', explanation: 'Example.' };
+  const answer = { id: 'q1', choices: ['B'], explanation: 'Example.' };
   const post = await startApi(t, { fetcher: () => providerResponse([answer, answer]) });
   const response = await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 502);
@@ -74,7 +96,7 @@ test('rejects invalid requests and reports a missing key without calling Gemini'
 test('uses each caller’s key for its own answer request without retaining it', async (t) => {
   const fetcher = t.mock.fn((_url, { headers }) => {
     const choice = headers[GEMINI_KEY_HEADER] === 'mock-key-one' ? 'A' : 'B';
-    return providerResponse([{ id: 'q1', choice, explanation: 'Example.' }]);
+    return providerResponse([{ id: 'q1', choices: [choice], explanation: 'Example.' }]);
   });
   const post = await startApi(t, { fetcher });
   const payload = { questions: [questions[0]] };
@@ -98,4 +120,80 @@ test('reports a rejected key without returning upstream credential details', asy
   const { error } = await response.json();
   assert.match(error, /replace it/);
   assert.doesNotMatch(error, /mock-key/);
+});
+
+test('keeps every selected option in order for select-all questions', async (t) => {
+  const question = { ...questions[0], stem: 'Which planets appear in the passage? Select all that apply.' };
+  const fetcher = () => providerResponse([{ id: question.id, choices: ['D', 'A', 'C'], explanation: 'All three appear.' }]);
+  const post = await startApi(t, { fetcher });
+  const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).answers, [{ id: question.id, choices: ['A', 'C', 'D'], explanation: 'All three appear.' }]);
+});
+
+test('rejects incompatible selections for single-answer and select-all questions', async (t) => {
+  let choices;
+  const single = questions[0];
+  const multiple = { ...single, stem: 'Which planets appear in the passage? Select all that apply.' };
+  const fetcher = () => providerResponse([{ id: single.id, choices, explanation: 'Example.' }]);
+  const post = await startApi(t, { fetcher });
+  for (const [question, selection] of [[single, ['A', 'B']], [multiple, ['A', 'A']], [multiple, ['A', 'UNANSWERABLE']]]) {
+    choices = selection;
+    const response = await post({ questions: [question] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+    assert.equal(response.status, 502);
+  }
+});
+
+test('splits longer lists by question count and text size while preserving answer order', async (t) => {
+  const input = Array.from({ length: 12 }, (_, index) => ({
+    ...questions[0], id: `q${index + 1}`,
+    stem: index === 10 || index === 11 ? 'Long context '.repeat(520) : questions[0].stem,
+  }));
+  const groups = [];
+  const post = await startApi(t, { fetcher: (_url, { body }) => {
+    const { questions: sent } = JSON.parse(JSON.parse(body).contents[0].parts[0].text);
+    groups.push(sent.map(({ id }) => id));
+    return providerResponse(sent.reverse().map(({ id }) => ({ id, choices: ['B'], explanation: 'Example.' })));
+  } });
+  const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  const expected = input.map(({ id }) => id);
+  assert.deepEqual(groups, [expected.slice(0, 5), expected.slice(5, 10), ['q11'], ['q12']]);
+  assert.deepEqual((await response.json()).answers.map(({ id }) => id), expected);
+});
+
+test('retries only the incomplete group as two smaller requests', async (t) => {
+  const input = Array.from({ length: 8 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
+  const groups = [];
+  const post = await startApi(t, { fetcher: (_url, { body }) => {
+    const { questions: sent } = JSON.parse(JSON.parse(body).contents[0].parts[0].text);
+    groups.push(sent.map(({ id }) => id));
+    if (sent.length === 3) return Response.json({ candidates: [{ finishReason: 'MAX_TOKENS' }] });
+    return providerResponse(sent.map(({ id }) => ({ id, choices: ['B'], explanation: 'Example.' })));
+  } });
+  const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 200);
+  const expected = input.map(({ id }) => id);
+  assert.deepEqual(groups, [expected.slice(0, 5), ['q6', 'q7', 'q8'], ['q6', 'q7'], ['q8']]);
+  assert.deepEqual((await response.json()).answers.map(({ id }) => id), expected);
+});
+
+test('reports upstream errors without retrying quota, unavailable service, or blocked content', async (t) => {
+  let provider;
+  const fetcher = t.mock.fn(() => provider());
+  const post = await startApi(t, { fetcher });
+  const key = { [GEMINI_KEY_HEADER]: 'mock-key' };
+  provider = () => Response.json({ error: { message: 'Upstream details' } }, { status: 400 });
+  const rejected = await post({ questions }, key);
+  assert.equal(rejected.status, 502);
+  assert.match((await rejected.json()).error, /rejected the request \(HTTP 400\)/);
+  provider = () => Response.json({}, { status: 429 });
+  assert.equal((await post({ questions }, key)).status, 429);
+  provider = () => Response.json({}, { status: 503 });
+  const unavailable = await post({ questions }, key);
+  assert.equal(unavailable.status, 503);
+  assert.match((await unavailable.json()).error, /temporarily unavailable \(HTTP 503\)/);
+  provider = () => Response.json({ promptFeedback: { blockReason: 'SAFETY' } });
+  assert.equal((await post({ questions }, key)).status, 422);
+  assert.equal(fetcher.mock.callCount(), 4);
 });
