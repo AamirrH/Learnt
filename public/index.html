@@ -15,11 +15,11 @@
           <span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span>Learnt<span class="brand-period">.</span></span>
         </a>
-        <span class="header-label">MCQ workspace</span>
+        <button class="quiet-button" id="manage-key" type="button" aria-haspopup="dialog" disabled>Gemini key</button>
       </div>
     </header>
 
-    <main class="page-width">
+    <main class="page-width" id="workspace" inert>
       <section class="intro" aria-labelledby="page-title">
         <h1 id="page-title">From paste to <em>answers.</em></h1>
         <p>Paste a list of multiple-choice questions, remove unnecessary text, and get a colour-coded answer key.</p>
@@ -101,5 +101,20 @@
         </div>
       </footer>
     </main>
+
+    <dialog class="key-dialog" id="key-dialog" closedby="none" aria-labelledby="key-title" aria-describedby="key-description">
+      <form id="key-form" method="dialog" autocomplete="off">
+        <h2 id="key-title">Gemini API key</h2>
+        <p id="key-description">Add your Gemini API key to continue. Learnt keeps it in this tab until you refresh or remove it.</p>
+        <label for="key-input">API key</label>
+        <input id="key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required autofocus>
+        <a class="key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a key from Google AI Studio</a>
+        <div class="key-actions">
+          <button class="quiet-button key-remove" id="remove-key" type="button" hidden>Remove key</button>
+          <button class="quiet-button" id="cancel-key" type="button" hidden>Cancel</button>
+          <button class="primary-button" id="save-key" type="submit">Continue</button>
+        </div>
+      </form>
+    </dialog>
   </body>
 </html>

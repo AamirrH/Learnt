@@ -1,4 +1,5 @@
 import { LETTERS } from './public/questions.js';
+import { GEMINI_KEY_HEADER } from './public/gemini-key.js';
 
 export const DEFAULT_MODEL = 'gemini-3.8-flash';
 const choices = [...LETTERS, 'UNANSWERABLE'];
@@ -10,8 +11,16 @@ export class GeminiError extends Error {
   }
 }
 
-function upstreamError(status) {
-  if (status === 401 || status === 403) return new GeminiError(502, 'Gemini rejected the API key or its access. Check the server configuration.');
+async function upstreamError(response) {
+  const { status } = response;
+  if (status === 400) {
+    const result = await response.json().catch(() => null);
+    const details = result?.error?.details;
+    if (Array.isArray(details) && details.some((item) => item?.reason === 'API_KEY_INVALID')) {
+      return new GeminiError(403, 'Gemini rejected this API key. Use the Gemini key button to replace it.');
+    }
+  }
+  if (status === 401 || status === 403) return new GeminiError(403, 'Gemini denied access. Check your API key and project in Google AI Studio.');
   if (status === 404) return new GeminiError(502, 'The configured Gemini model is unavailable. Check GEMINI_MODEL.');
   if (status === 429) return new GeminiError(429, 'Gemini hit a rate or quota limit. Try again later or check your quota.');
   return new GeminiError(502, 'Gemini could not answer this request. Try again.');
@@ -44,7 +53,6 @@ function readAnswers(payload, questions) {
 }
 
 export async function answerWithGemini(questions, { apiKey, model = DEFAULT_MODEL, fetcher = fetch, signal }) {
-  if (!apiKey?.trim()) throw new GeminiError(503, 'Gemini needs a server API key. Set GEMINI_API_KEY and restart Learnt.');
   if (!/^[a-z\d][a-z\d.-]*$/i.test(model)) throw new GeminiError(503, 'Check the server’s GEMINI_MODEL setting.');
 
   const schema = {
@@ -72,7 +80,7 @@ export async function answerWithGemini(questions, { apiKey, model = DEFAULT_MODE
   try {
     const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey.trim() },
+      headers: { 'Content-Type': 'application/json', [GEMINI_KEY_HEADER]: apiKey },
       signal: requestSignal,
       redirect: 'error',
       body: JSON.stringify({
@@ -86,7 +94,7 @@ export async function answerWithGemini(questions, { apiKey, model = DEFAULT_MODE
         generationConfig: { responseMimeType: 'application/json', responseJsonSchema: schema },
       }),
     });
-    if (!response.ok) throw upstreamError(response.status);
+    if (!response.ok) throw await upstreamError(response);
     payload = await response.json();
   } catch (error) {
     if (error instanceof GeminiError) throw error;

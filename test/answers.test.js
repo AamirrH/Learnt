@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import test from 'node:test';
 import { createApp } from '../server.js';
+import { GEMINI_KEY_HEADER } from '../public/gemini-key.js';
 
 const questions = [
   { id: 'q1', number: '7', stem: 'Which planet appears red?', options: { A: 'Venus', B: 'Mars', C: 'Jupiter', D: 'Earth' } },
@@ -32,18 +33,17 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
   ];
   let upstream;
   const post = await startApi(t, {
-    apiKey: 'mock-key',
     fetcher(url, options) {
       upstream = { url, ...options, body: JSON.parse(options.body) };
       return providerResponse([...expected].reverse());
     },
   });
 
-  const response = await post({ questions, removed: ['Do not send this paragraph.'] });
+  const response = await post({ questions, removed: ['Do not send this paragraph.'] }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { answers: expected });
   assert.match(upstream.url, /^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\/.+:generateContent$/);
-  assert.equal(upstream.headers['x-goog-api-key'], 'mock-key');
+  assert.equal(upstream.headers[GEMINI_KEY_HEADER], 'mock-key');
   assert.deepEqual(JSON.parse(upstream.body.contents[0].parts[0].text), {
     questions: questions.map(({ id, stem, options }) => ({ id, stem, options })),
   });
@@ -53,19 +53,49 @@ test('sends only reviewed questions to Gemini and matches answers by ID', async 
 
 test('rejects duplicate Gemini answers so one question cannot receive another answer', async (t) => {
   const answer = { id: 'q1', choice: 'B', explanation: 'Example.' };
-  const post = await startApi(t, { apiKey: 'mock-key', fetcher: () => providerResponse([answer, answer]) });
-  const response = await post({ questions });
+  const post = await startApi(t, { fetcher: () => providerResponse([answer, answer]) });
+  const response = await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 502);
   assert.match((await response.json()).error, /incomplete answer key/);
 });
 
 test('rejects invalid requests and reports a missing key without calling Gemini', async (t) => {
   const fetcher = t.mock.fn();
-  const post = await startApi(t, { apiKey: '', fetcher });
+  const post = await startApi(t, { fetcher });
   assert.equal((await post({ questions }, { Origin: 'https://different.example' })).status, 403);
   assert.equal((await post({ questions: [questions[0], questions[0]] })).status, 400);
-  const response = await post({ questions });
-  assert.equal(response.status, 503);
-  assert.match((await response.json()).error, /GEMINI_API_KEY/);
+  const response = await post({ questions, apiKey: 'ignored-body-key' });
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /Add your Gemini API key/);
+  assert.equal((await post({ questions }, { [GEMINI_KEY_HEADER]: 'invalid key' })).status, 400);
   assert.equal(fetcher.mock.callCount(), 0);
+});
+
+test('uses each caller’s key for its own answer request without retaining it', async (t) => {
+  const fetcher = t.mock.fn((_url, { headers }) => {
+    const choice = headers[GEMINI_KEY_HEADER] === 'mock-key-one' ? 'A' : 'B';
+    return providerResponse([{ id: 'q1', choice, explanation: 'Example.' }]);
+  });
+  const post = await startApi(t, { fetcher });
+  const payload = { questions: [questions[0]] };
+  const [first, second] = await Promise.all([
+    post(payload, { [GEMINI_KEY_HEADER]: 'mock-key-one' }),
+    post(payload, { [GEMINI_KEY_HEADER]: 'mock-key-two' }),
+  ]);
+  assert.equal((await first.json()).answers[0].choice, 'A');
+  assert.equal((await second.json()).answers[0].choice, 'B');
+  assert.equal((await post(payload)).status, 400);
+  assert.equal(fetcher.mock.callCount(), 2);
+});
+
+test('reports a rejected key without returning upstream credential details', async (t) => {
+  const fetcher = () => Response.json({
+    error: { message: 'Rejected mock-key', details: [{ reason: 'API_KEY_INVALID' }] },
+  }, { status: 400 });
+  const post = await startApi(t, { fetcher });
+  const response = await post({ questions }, { [GEMINI_KEY_HEADER]: 'mock-key' });
+  assert.equal(response.status, 403);
+  const { error } = await response.json();
+  assert.match(error, /replace it/);
+  assert.doesNotMatch(error, /mock-key/);
 });

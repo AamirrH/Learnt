@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { answerWithGemini, DEFAULT_MODEL, GeminiError } from './gemini.js';
+import { GEMINI_KEY_HEADER, isGeminiKeyInput } from './public/gemini-key.js';
 import { LETTERS, MAX_QUESTIONS, MAX_SOURCE_LENGTH } from './public/questions.js';
 
 const MAX_REQUEST_BYTES = 400 * 1024;
@@ -11,6 +12,7 @@ const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/gemini-key.js', ['gemini-key.js', 'text/javascript; charset=utf-8']],
   ['/questions.js', ['questions.js', 'text/javascript; charset=utf-8']],
 ]);
 
@@ -77,7 +79,11 @@ async function handleAnswers(request, response, gemini) {
   });
   try {
     const questions = await readQuestions(request);
-    const answers = await answerWithGemini(questions, { ...gemini, signal: controller.signal });
+    const apiKey = request.headers[GEMINI_KEY_HEADER];
+    if (!isGeminiKeyInput(apiKey)) {
+      throw new GeminiError(400, 'Add your Gemini API key to request answers.');
+    }
+    const answers = await answerWithGemini(questions, { ...gemini, apiKey, signal: controller.signal });
     sendJson(response, 200, { answers });
   } catch (error) {
     if (response.destroyed) return;
@@ -86,11 +92,11 @@ async function handleAnswers(request, response, gemini) {
   }
 }
 
-export function createApp({ apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch } = {}) {
+export function createApp({ model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch } = {}) {
   return createServer(async (request, response) => {
     const path = request.url.split('?', 1)[0];
     if (path === '/api/answers' && request.method === 'POST') {
-      await handleAnswers(request, response, { apiKey, model, fetcher });
+      await handleAnswers(request, response, { model, fetcher });
       return;
     }
     const asset = request.method === 'GET' && assets.get(path);
