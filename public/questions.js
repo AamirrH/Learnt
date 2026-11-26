@@ -20,6 +20,8 @@ export function distinguishingPrefixEnd(answer, alternatives) {
 const questionStart = /^\s*(?:(?:question|q)\s*#?\s*(\d{1,5})\s*(?:[.):\-–]\s*|\s+|$)|(\d{1,5})(?:[.):]\s*|\s+[-–]\s*))(.*)$/i;
 const optionAtStart = /^\s*(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))\s*(.*)$/i;
 const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/gi;
+const paragraphBreak = /(\n[^\S\n]*\n(?:[^\S\n]*\n)*)/;
+const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\s+answer|all\s+that\s+apply)\s*[.!]?\s*$/i;
 
 function splitInlineOptions(lines) {
   return lines.flatMap((line) => {
@@ -40,7 +42,17 @@ function splitQuestions(lines) {
   for (const line of lines) {
     const start = line.match(questionStart);
     if (start) {
-      numbered.push({ number: start[1] ?? start[2], lines: [start[3]] });
+      const number = start[1] ?? start[2];
+      const nested = start[2] && start[3].match(questionStart);
+      const stem = nested?.[1] && Number(nested[1]) === Number(number) ? nested[3] : start[3];
+      const previous = numbered.at(-1);
+      if (start[1] && previous?.bareNumber && Number(previous.number) === Number(number)
+        && previous.lines.every((part) => !part.trim())) {
+        previous.lines = [stem];
+        previous.bareNumber = false;
+      } else {
+        numbered.push({ number, lines: [stem], bareNumber: Boolean(start[2]) && !start[3].trim() });
+      }
     } else {
       (numbered.at(-1)?.lines ?? prefix).push(line);
     }
@@ -70,6 +82,21 @@ function splitQuestions(lines) {
   };
 }
 
+function readUnlabeledParts(lines) {
+  const blocks = paragraphs(lines.join('\n'));
+  const instructionIndex = blocks.findIndex((block) => answerInstruction.test(block));
+  const stemEnd = instructionIndex === -1 && blocks.length === LETTERS.length + 1 ? 0 : instructionIndex;
+  if (stemEnd < 0 || blocks.length - stemEnd <= LETTERS.length) return null;
+
+  const optionsStart = stemEnd + 1;
+  const optionsEnd = optionsStart + LETTERS.length;
+  return {
+    stem: blocks.slice(0, optionsStart).join('\n\n'),
+    choices: blocks.slice(optionsStart, optionsEnd),
+    trailing: blocks.slice(optionsEnd),
+  };
+}
+
 function readSection(section, index) {
   const parts = [[]];
   const letters = [];
@@ -92,9 +119,12 @@ function readSection(section, index) {
     if (separator !== -1) trailing.push(...finalPart.splice(separator));
   }
 
-  const [stem, ...choices] = parts.map((part) => part.join('\n').trim());
-  if (!stem || letters.join('') !== 'ABCD' || choices.some((choice) => !choice)) {
-    return { issue: `Question ${section.number} needs question text and four options labeled A through D.` };
+  const [labeledStem, ...labeledChoices] = parts.map((part) => part.join('\n').trim());
+  const unlabeled = letters.length ? null : readUnlabeledParts(section.lines);
+  const stem = unlabeled?.stem ?? labeledStem;
+  const choices = unlabeled?.choices ?? labeledChoices;
+  if (!stem || (!unlabeled && letters.join('') !== 'ABCD') || choices.some((choice) => !choice)) {
+    return { issue: `Question ${section.number} needs question text and four options. Use A–D labels or separate the options with blank lines.` };
   }
   return {
     question: {
@@ -103,12 +133,12 @@ function readSection(section, index) {
       stem,
       options: Object.fromEntries(LETTERS.map((letter, optionIndex) => [letter, choices[optionIndex]])),
     },
-    trailing,
+    trailing: unlabeled?.trailing ?? paragraphs(trailing.join('\n')),
   };
 }
 
 function paragraphs(text) {
-  return text.split(/\n[\t ]*\n+/).map((part) => part.trim()).filter(Boolean);
+  return text.split(paragraphBreak).map((part) => part.trim()).filter(Boolean);
 }
 
 export function parseQuestions(source, exclusions = '') {
@@ -120,7 +150,7 @@ export function parseQuestions(source, exclusions = '') {
   const targets = new Set(paragraphs(exclusions.replace(/\r\n?/g, '\n')));
   const matched = new Set();
   let protectedParagraphCount = 0;
-  const cleaned = normalized.split(/(\n[\t ]*\n+)/).map((part, index) => {
+  const cleaned = normalized.split(paragraphBreak).map((part, index) => {
     if (index % 2 || !targets.has(part.trim())) return part;
     matched.add(part.trim());
     if (splitInlineOptions(part.split('\n')).some((line) => questionStart.test(line) || optionAtStart.test(line))) {
@@ -143,7 +173,7 @@ export function parseQuestions(source, exclusions = '') {
       warnings.push(entry.issue);
     } else {
       questions.push(entry.question);
-      removed.push(...paragraphs(entry.trailing.join('\n')));
+      removed.push(...entry.trailing);
     }
   }
 

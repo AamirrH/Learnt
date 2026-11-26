@@ -72,3 +72,29 @@ test('keeps a question when an exclusion contains its labels', () => {
   assert.match(result.warnings[0], /contains a question or option label/);
   assert.deepEqual(result.removed, []);
 });
+
+test('reads copied quiz headings once and labels options separated by blank paragraphs', () => {
+  const source = [
+    '1.', '  ', 'Question 1', 'Which tool works? Select the best answer.', '\u00a0',
+    'First', '', 'Second with', 'a wrapped line', '', 'Third', '', 'Fourth', '',
+    '2. Question 2 Which tools work? Select all that apply.', '',
+    'Alpha', '', 'Beta', '', 'Gamma', '', 'Delta',
+  ].join('\r\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions.map(({ id, number, stem }) => [id, number, stem]), [
+    ['q1', '1', 'Which tool works? Select the best answer.'],
+    ['q2', '2', 'Which tools work? Select all that apply.'],
+  ]);
+  assert.deepEqual(result.questions[0].options, { A: 'First', B: 'Second with\na wrapped line', C: 'Third', D: 'Fourth' });
+  assert.deepEqual(result.questions[1].options, { A: 'Alpha', B: 'Beta', C: 'Gamma', D: 'Delta' });
+});
+
+test('preserves context through the answer instruction and removes text after the four options', () => {
+  const source = '4. Read this scenario.\n\nWhich response works? Select the best answer.\n\nOne\n\nTwo\n\nThree\n\nFour\n\nEnd of preview';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].stem, 'Read this scenario.\n\nWhich response works? Select the best answer.');
+  assert.deepEqual(result.removed, ['End of preview']);
+  assert.match(parseQuestions(source.split('\n\nFour')[0]).warnings[0], /Question 4 needs/);
+});

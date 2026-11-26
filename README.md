@@ -12,7 +12,7 @@ The server uses `gemini-3.8-flash` by default. Set `GEMINI_MODEL` in the same se
 
 ## Review and answer
 
-1. Paste up to 50 questions with four options labeled A through D. Use numbered questions throughout, or put a blank line between each unnumbered question.
+1. Paste up to 50 questions with four options each. Labels A through D are optional for numbered questions when the question text and each option are separated by blank lines. Repeated headers like `1.` followed by `Question 1` count as one question.
 2. Select **Review questions**. For numbered input, Learnt treats text above the first question and separate paragraphs after option D as surrounding material. Check the removed paragraphs in the preview. Keep any passage a question needs within that question’s stem. Use **Exclude specific paragraphs** to remove any other complete, blank-line-delimited paragraphs by exact text.
 3. Select **Get answers** to send the reviewed question stems and options to Gemini. The answer key highlights the selected option and includes a brief explanation. Questions without sufficient context can appear as **Unanswered**. Use **Copy key** for a compact list.
 
