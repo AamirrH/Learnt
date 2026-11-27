@@ -2,7 +2,7 @@ import { GeminiError as AnswerError, letterAnswerSchema, letterInstruction, pars
 
 const models = new Map([
   ['claude', 'anthropic/claude-haiku-5.5'],
-  ['gpt', 'openai/gpt-6-sol'],
+  ['gpt', 'openai/gpt-5.4-mini'],
 ]);
 const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
 const answersProperty = letterAnswerSchema.properties.answers;
