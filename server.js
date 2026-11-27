@@ -6,7 +6,7 @@ import { answerWithOpenRouter } from './openrouter.js';
 import { GEMINI_KEY_HEADER, isGeminiKeyInput, isOpenRouterKeyInput, OPENROUTER_KEY_HEADER } from './public/gemini-key.js';
 import { LETTERS, MAX_QUESTIONS, MAX_SOURCE_LENGTH } from './public/questions.js';
 
-const MAX_REQUEST_BYTES = 400 * 1024;
+const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 const localHost = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i;
 
 const assets = new Map([

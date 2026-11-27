@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { LETTERS, toPlainQuizText } from './public/questions.js';
+import { LETTERS, QUESTIONS_PER_BATCH, toPlainQuizText } from './public/questions.js';
 import { GEMINI_KEY_HEADER } from './public/gemini-key.js';
 
 export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
@@ -8,7 +8,6 @@ const modelSettings = new Map([
   [DEFAULT_MODEL, { timeoutMs: 30_000, thinkingLevel: 'MINIMAL' }],
   [ALTERNATE_MODEL, { timeoutMs: 45_000, thinkingLevel: 'LOW' }],
 ]);
-const MAX_BATCH_QUESTIONS = 5;
 const MAX_BATCH_CHARACTERS = 12_000;
 const answerLabels = [...LETTERS, 'UNANSWERABLE'];
 const selectAll = /\b(?:select|choose)\s+all\s+that\s+apply\b/i;
@@ -169,7 +168,7 @@ export function* plainQuestionBatches(questions) {
       options: Object.fromEntries(LETTERS.map((letter) => [letter, toPlainQuizText(options[letter])])),
     };
     const size = JSON.stringify(question).length;
-    if (batch.length && (batch.length === MAX_BATCH_QUESTIONS || characters + size > MAX_BATCH_CHARACTERS)) {
+    if (batch.length && (batch.length === QUESTIONS_PER_BATCH || characters + size > MAX_BATCH_CHARACTERS)) {
       yield batch;
       batch = [];
       characters = 0;

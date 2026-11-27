@@ -1,6 +1,7 @@
 export const LETTERS = Object.freeze(['A', 'B', 'C', 'D']);
-export const MAX_QUESTIONS = 50;
-export const MAX_SOURCE_LENGTH = 60_000;
+export const MAX_QUESTIONS = 100;
+export const QUESTIONS_PER_BATCH = 20;
+export const MAX_SOURCE_LENGTH = 300_000;
 
 export function majorityLabel(selections) {
   const ballots = selections.map((selection) => LETTERS.filter((letter) => selection.includes(letter)).join(', '));

@@ -16,6 +16,16 @@ test('requires the same complete selection for a select-all majority', () => {
   assert.equal(majorityLabel([['A', 'B'], ['A', 'C'], ['B', 'C']]), 'No majority');
 });
 
+test('reviews 100 questions in order without a batch-size warning', () => {
+  const source = Array.from({ length: 100 }, (_, index) => (
+    `${index + 1}. Which option fits?\nA. One\nB. Two\nC. Three\nD. Four`
+  )).join('\n\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 100);
+  assert.equal(result.questions.at(-1).id, 'q100');
+});
+
 test('highlights through the first word that distinguishes the answer from every option', () => {
   const answer = 'The apples are red and fruity but rotten.';
   const end = distinguishingPrefixEnd(answer, [

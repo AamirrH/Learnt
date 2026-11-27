@@ -217,9 +217,9 @@ test('rejects incompatible selections for single-answer and select-all questions
 });
 
 test('splits longer lists by question count and text size while preserving answer order', async (t) => {
-  const input = Array.from({ length: 12 }, (_, index) => ({
+  const input = Array.from({ length: 100 }, (_, index) => ({
     ...questions[0], id: `q${index + 1}`,
-    stem: index === 10 || index === 11 ? 'Long context '.repeat(520) : questions[0].stem,
+    stem: index === 98 || index === 99 ? 'Long context '.repeat(520) : questions[0].stem,
   }));
   const groups = [];
   const post = await startApi(t, { fetcher: (_url, { body }) => {
@@ -230,12 +230,13 @@ test('splits longer lists by question count and text size while preserving answe
   const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 200);
   const expected = input.map(({ id }) => id);
-  assert.deepEqual(groups, [expected.slice(0, 5), expected.slice(5, 10), ['q11'], ['q12']]);
+  assert.deepEqual(groups, [expected.slice(0, 20), expected.slice(20, 40), expected.slice(40, 60),
+    expected.slice(60, 80), expected.slice(80, 99), ['q100']]);
   assert.deepEqual((await response.json()).answers.map(({ id }) => id), expected);
 });
 
 test('retries only the incomplete group as two smaller requests', async (t) => {
-  const input = Array.from({ length: 8 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
+  const input = Array.from({ length: 23 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
   const groups = [];
   const post = await startApi(t, { fetcher: (_url, { body }) => {
     const { questions: sent } = JSON.parse(JSON.parse(body).contents[0].parts[0].text);
@@ -246,7 +247,7 @@ test('retries only the incomplete group as two smaller requests', async (t) => {
   const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 200);
   const expected = input.map(({ id }) => id);
-  assert.deepEqual(groups, [expected.slice(0, 5), ['q6', 'q7', 'q8'], ['q6', 'q7'], ['q8']]);
+  assert.deepEqual(groups, [expected.slice(0, 20), ['q21', 'q22', 'q23'], ['q21', 'q22'], ['q23']]);
   assert.deepEqual((await response.json()).answers.map(({ id }) => id), expected);
 });
 
@@ -271,7 +272,7 @@ test('reports upstream errors without retrying quota, unavailable service, or bl
 });
 
 test('switches models after a 503 and keeps the working model for the rest of the quiz', async (t) => {
-  const input = Array.from({ length: 11 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
+  const input = Array.from({ length: 41 }, (_, index) => ({ ...questions[0], id: `q${index + 1}` }));
   const attempts = [];
   const post = await startApi(t, { model: DEFAULT_MODEL, fetcher: (url, { headers, body }) => {
     const model = url.match(/models\/([^:]+):generateContent$/)[1];
@@ -279,15 +280,15 @@ test('switches models after a 503 and keeps the working model for the rest of th
     const { questions: sent } = JSON.parse(payload.contents[0].parts[0].text);
     attempts.push([model, sent[0].id, payload.generationConfig.thinkingConfig.thinkingLevel]);
     assert.equal(headers[GEMINI_KEY_HEADER], 'mock-key');
-    if (model === DEFAULT_MODEL && sent[0].id === 'q6') return Response.json({}, { status: 503 });
+    if (model === DEFAULT_MODEL && sent[0].id === 'q21') return Response.json({}, { status: 503 });
     return providerResponse(sent.map(({ id }) => ({ id, choices: ['B'], explanation: 'Example.' })));
   } });
   const response = await post({ questions: input }, { [GEMINI_KEY_HEADER]: 'mock-key' });
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).answers.map(({ id }) => id), input.map(({ id }) => id));
   assert.deepEqual(attempts, [
-    [DEFAULT_MODEL, 'q1', 'MINIMAL'], [DEFAULT_MODEL, 'q6', 'MINIMAL'],
-    ['gemini-3.8-flash', 'q6', 'LOW'], ['gemini-3.8-flash', 'q11', 'LOW'],
+    [DEFAULT_MODEL, 'q1', 'MINIMAL'], [DEFAULT_MODEL, 'q21', 'MINIMAL'],
+    ['gemini-3.8-flash', 'q21', 'LOW'], ['gemini-3.8-flash', 'q41', 'LOW'],
   ]);
 });
 
