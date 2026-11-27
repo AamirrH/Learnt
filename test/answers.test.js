@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { createApp } from '../server.js';
 import { DEFAULT_MODEL } from '../gemini.js';
-import { GEMINI_KEY_HEADER } from '../public/gemini-key.js';
+import { GEMINI_KEY_HEADER, OPENROUTER_KEY_HEADER } from '../public/gemini-key.js';
 
 const questions = [
   { id: 'q1', number: '7', stem: 'Which planet appears red?', options: { A: 'Venus', B: 'Mars', C: 'Jupiter', D: 'Earth' } },
@@ -16,7 +16,7 @@ async function startApi(t, options) {
   await once(app, 'listening');
   t.after(() => new Promise((resolve) => app.close(resolve)));
   const url = `http://127.0.0.1:${app.address().port}/api/answers`;
-  return (body, headers) => fetch(url, {
+  return (body, headers, provider) => fetch(provider ? `${url}?provider=${provider}` : url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -26,6 +26,57 @@ async function startApi(t, options) {
 function providerResponse(answers) {
   return Response.json({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify({ answers }) }] } }] });
 }
+
+test('routes the same reviewed questions to three models with their own keys and letter-only output', async (t) => {
+  const claudeKey = ['sk', 'or', 'v1', 'fake-claude'].join('-');
+  const gptKey = ['sk', 'or', 'v1', 'fake-gpt'].join('-');
+  const openRouterKeys = new Map([['anthropic/claude-haiku-5.5', claudeKey], ['openai/gpt-5.4-mini', gptKey]]);
+  const answers = [{ id: 'q2', choices: ['UNANSWERABLE'] }, { id: 'q1', choices: ['B'] }];
+  const fetcher = t.mock.fn((url, { headers, body }) => {
+    const request = JSON.parse(body);
+    const gemini = url.startsWith('https://generativelanguage.googleapis.com/');
+    const input = gemini ? request.contents[0].parts[0].text : request.messages[1].content;
+    const schema = gemini ? request.generationConfig.responseFormat.text.schema : request.response_format.json_schema.schema;
+    assert.deepEqual(JSON.parse(input), { questions: questions.map(({ id, stem, options }) => ({ id, stem, options })) });
+    assert.deepEqual(schema.properties.answers.items.required, ['id', 'choices']);
+    assert.deepEqual(Object.keys(schema.properties.answers.items.properties), ['id', 'choices']);
+    if (gemini) {
+      assert.equal(headers[GEMINI_KEY_HEADER], 'mock-gemini');
+      assert.equal(headers.Authorization, undefined);
+      assert.match(request.systemInstruction.parts[0].text, /Omit explanations and option text/);
+      return providerResponse(answers);
+    }
+    assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
+    assert.equal(headers[GEMINI_KEY_HEADER], undefined);
+    assert.ok(openRouterKeys.has(request.model));
+    assert.equal(headers.Authorization, `Bearer ${openRouterKeys.get(request.model)}`);
+    assert.equal(request.provider.require_parameters, true);
+    assert.equal(request.response_format.json_schema.strict, true);
+    assert.match(request.messages[0].content, /Omit explanations and option text/);
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ answers }) } }] });
+  });
+  const publicOrigin = 'https://learnt-roan.vercel.app';
+  const headers = { Host: new URL(publicOrigin).host, Origin: publicOrigin };
+  const post = await startApi(t, { fetcher, publicOrigin });
+  const body = { questions, removed: ['Omit this filler.'] };
+  const responses = await Promise.all([
+    post(body, { ...headers, [GEMINI_KEY_HEADER]: 'mock-gemini' }, 'gemini'),
+    post(body, { ...headers, [OPENROUTER_KEY_HEADER]: claudeKey }, 'claude'),
+    post(body, { ...headers, [OPENROUTER_KEY_HEADER]: gptKey }, 'gpt'),
+  ]);
+  for (const response of responses) {
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).answers, [{ id: 'q1', choice: 'B' }, { id: 'q2', choice: 'UNANSWERABLE' }]);
+  }
+  assert.equal(fetcher.mock.callCount(), 3);
+  const allModels = fetcher.mock.calls.map(({ arguments: [, init] }) => JSON.parse(init.body).model).filter(Boolean);
+  assert.deepEqual(new Set(allModels), new Set(openRouterKeys.keys()));
+
+  assert.equal((await post(body, { ...headers, [GEMINI_KEY_HEADER]: claudeKey }, 'gemini')).status, 400);
+  assert.equal((await post(body, { ...headers, [GEMINI_KEY_HEADER]: 'mock-gemini' }, 'gpt')).status, 400);
+  assert.equal((await post(body, headers, 'unknown')).status, 400);
+  assert.equal(fetcher.mock.callCount(), 3);
+});
 
 test('sends only reviewed questions to Gemini and matches answers by ID', async (t) => {
   const expected = [

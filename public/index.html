@@ -15,7 +15,7 @@
           <span class="brand-icon" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
           <span>Learnt<span class="brand-period">.</span></span>
         </a>
-        <button class="quiet-button" id="manage-key" type="button" aria-haspopup="dialog" disabled>Gemini key</button>
+        <button class="quiet-button" id="manage-key" type="button" aria-haspopup="dialog" disabled>API keys</button>
       </div>
     </header>
 
@@ -94,13 +94,24 @@
 
     <dialog class="key-dialog" id="key-dialog" closedby="none" aria-labelledby="key-title" aria-describedby="key-description">
       <form id="key-form" method="dialog" autocomplete="off">
-        <h2 id="key-title">Gemini API key</h2>
-        <p id="key-description">Add your Gemini API key to continue. Learnt keeps it in this tab until you refresh or remove it.</p>
-        <label for="key-input">API key</label>
-        <input id="key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required autofocus>
-        <a class="key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a key from Google AI Studio</a>
+        <h2 id="key-title">API keys</h2>
+        <p id="key-description">Add your keys to continue. Learnt keeps them in this tab until you refresh or remove them.</p>
+        <div class="key-field" id="gemini-key-field">
+          <label for="gemini-key-input">Gemini API key</label>
+          <input id="gemini-key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required>
+          <a class="key-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Get a Gemini key</a>
+        </div>
+        <div class="key-field" id="claude-key-field">
+          <label for="claude-key-input">Claude OpenRouter key</label>
+          <input id="claude-key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required>
+        </div>
+        <div class="key-field" id="gpt-key-field">
+          <label for="gpt-key-input">GPT OpenRouter key</label>
+          <input id="gpt-key-input" type="password" autocomplete="off" spellcheck="false" maxlength="512" required>
+        </div>
+        <a class="key-link" href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get OpenRouter keys</a>
         <div class="key-actions">
-          <button class="quiet-button key-remove" id="remove-key" type="button" hidden>Remove key</button>
+          <button class="quiet-button key-remove" id="remove-key" type="button" hidden>Remove keys</button>
           <button class="quiet-button" id="cancel-key" type="button" hidden>Cancel</button>
           <button class="primary-button" id="save-key" type="submit">Continue</button>
         </div>

@@ -239,6 +239,12 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 .answer-highlight { font-weight: 700; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .explanation { margin: 10px 0 0 44px; color: var(--muted); font-size: .9375rem; line-height: 1.55; }
 .unanswered { color: #704a15; }
+.model-comparisons {
+  margin: 10px 0 0 44px;
+  color: var(--muted);
+  font-size: .875rem;
+}
+.model-comparisons strong { color: var(--navy); }
 
 .workspace-footer {
   display: flex;
@@ -268,6 +274,7 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 .key-dialog::backdrop { background: #142d506d; }
 .key-dialog h2 { margin: 0; font-size: 1.3rem; letter-spacing: -.02em; }
 .key-dialog p { margin: 8px 0 18px; color: var(--muted); line-height: 1.55; }
+.key-field + .key-field { margin-top: 14px; }
 .key-dialog label { display: block; margin-bottom: 6px; font-size: .875rem; font-weight: 650; }
 .key-dialog input {
   width: 100%;
@@ -304,7 +311,7 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
 
 @media (max-width: 460px) {
   .empty-state { padding: 18px; }
-  .option-list, .explanation { margin-left: 0; }
+  .option-list, .explanation, .model-comparisons { margin-left: 0; }
   .option { column-gap: 7px; }
 }
 

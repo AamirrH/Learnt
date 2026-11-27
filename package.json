@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
+    "start:claude": "node server.js --openrouter",
     "dev": "node --watch server.js",
     "test": "node --test"
   },

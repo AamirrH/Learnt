@@ -119,6 +119,14 @@ test('keeps multiline options when repasting a preview with bare option letters'
   assert.deepEqual(result.removed, []);
 });
 
+test('removes copied model comparisons without trimming multiline option text', () => {
+  const source = '1.\nWhich wording matches?\nA\nOne\nAnswer\nB\nTwo\nC\nThree\nD\nFirst line\nSecond line\nClaude B · GPT A, C';
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.deepEqual(result.questions[0].options, { A: 'One', B: 'Two', C: 'Three', D: 'First line\nSecond line' });
+  assert.deepEqual(result.removed, ['Answer', 'Claude B · GPT A, C']);
+});
+
 test('preserves context through the answer instruction and removes text after the four options', () => {
   const source = '4. Read this scenario.\n\nWhich response works? Select the best answer.\n\nOne\n\nTwo\n\nThree\n\nFour\n\nEnd of preview';
   const result = parseQuestions(source);

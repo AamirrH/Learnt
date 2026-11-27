@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { answerWithGemini, DEFAULT_MODEL, GeminiError } from './gemini.js';
-import { GEMINI_KEY_HEADER, isGeminiKeyInput } from './public/gemini-key.js';
+import { answerWithOpenRouter } from './openrouter.js';
+import { GEMINI_KEY_HEADER, isGeminiKeyInput, isOpenRouterKeyInput, OPENROUTER_KEY_HEADER } from './public/gemini-key.js';
 import { LETTERS, MAX_QUESTIONS, MAX_SOURCE_LENGTH } from './public/questions.js';
 
 const MAX_REQUEST_BYTES = 400 * 1024;
@@ -61,7 +62,7 @@ async function readQuestions(request) {
   });
 }
 
-async function handleAnswers(request, response, gemini, publicOrigin) {
+async function handleAnswers(request, response, { model, fetcher, defaultProvider }, publicOrigin) {
   const host = request.headers.host;
   const origin = request.headers.origin;
   const allowedOrigin = publicOrigin
@@ -76,17 +77,29 @@ async function handleAnswers(request, response, gemini, publicOrigin) {
     return;
   }
 
+  const params = new URLSearchParams(request.url.split('?', 2)[1]);
+  const provider = params.get('provider') ?? defaultProvider;
+  if (provider !== null && !['gemini', 'claude', 'gpt'].includes(provider)) {
+    sendJson(response, 400, { error: 'Choose Gemini, Claude, or GPT.' });
+    return;
+  }
+  const openRouter = provider === 'claude' || provider === 'gpt';
+
   const controller = new AbortController();
   response.on('close', () => {
     if (!response.writableEnded) controller.abort();
   });
   try {
     const questions = await readQuestions(request);
-    const apiKey = request.headers[GEMINI_KEY_HEADER];
-    if (!isGeminiKeyInput(apiKey)) {
-      throw new GeminiError(400, 'Add your Gemini API key to request answers.');
+    const apiKey = request.headers[openRouter ? OPENROUTER_KEY_HEADER : GEMINI_KEY_HEADER];
+    if (!(openRouter ? isOpenRouterKeyInput(apiKey) : isGeminiKeyInput(apiKey))) {
+      const keyProvider = openRouter ? 'OpenRouter' : 'Gemini';
+      throw new GeminiError(400, `Add your ${keyProvider} API key to request answers.`);
     }
-    const answers = await answerWithGemini(questions, { ...gemini, apiKey, signal: controller.signal });
+    const config = { fetcher, apiKey, signal: controller.signal };
+    const answers = openRouter
+      ? await answerWithOpenRouter(questions, { ...config, provider })
+      : await answerWithGemini(questions, { ...config, model, lettersOnly: provider === 'gemini' });
     sendJson(response, 200, { answers });
   } catch (error) {
     if (response.destroyed) return;
@@ -95,18 +108,19 @@ async function handleAnswers(request, response, gemini, publicOrigin) {
   }
 }
 
-export function createAnswerHandler({ model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch, publicOrigin } = {}) {
+export function createAnswerHandler({ model = process.env.GEMINI_MODEL || DEFAULT_MODEL, fetcher = fetch, publicOrigin, openRouter = false } = {}) {
+  const defaultProvider = openRouter && !publicOrigin ? 'claude' : null;
   return async (request, response) => {
     if (request.method !== 'POST') {
       response.setHeader('Allow', 'POST');
       sendJson(response, 405, { error: 'Send a POST request to request answers.' });
       return;
     }
-    await handleAnswers(request, response, { model, fetcher }, publicOrigin);
+    await handleAnswers(request, response, { model, fetcher, defaultProvider }, publicOrigin);
   };
 }
 
-export function createApp(options) {
+export function createApp(options = {}) {
   const answer = createAnswerHandler(options);
   return createServer(async (request, response) => {
     const path = request.url.split('?', 1)[0];
@@ -123,11 +137,14 @@ export function createApp(options) {
     try {
       const [file, contentType] = asset;
       const body = await readFile(new URL(`./public/${file}`, import.meta.url));
+      const content = options.openRouter && !options.publicOrigin && path === '/'
+        ? body.toString().replace('<html lang="en">', '<html lang="en" data-answer-provider="openrouter">')
+        : body;
       response.writeHead(200, {
         'Content-Type': contentType,
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "default-src 'self'; base-uri 'none'; frame-ancestors 'none'",
-      }).end(body);
+      }).end(content);
     } catch {
       response.writeHead(500).end('Could not load the workspace.');
     }
@@ -135,8 +152,9 @@ export function createApp(options) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const port = Number(process.env.PORT || 3000);
-  createApp().listen(port, '127.0.0.1', () => {
-    console.log(`Learnt is available at http://127.0.0.1:${port}`);
+  const openRouter = process.argv.includes('--openrouter');
+  const port = Number(process.env.PORT || (openRouter ? 3118 : 3000));
+  createApp({ openRouter }).listen(port, '127.0.0.1', () => {
+    console.log(`Learnt${openRouter ? ' with Claude via OpenRouter' : ''} is available at http://127.0.0.1:${port}`);
   });
 }
