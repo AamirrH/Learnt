@@ -245,6 +245,12 @@ summary { width: fit-content; color: var(--accent); font-size: .875rem; font-wei
   font-size: .875rem;
 }
 .model-comparisons strong { color: var(--navy); }
+.model-comparisons .majority-answer {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--blue-wash);
+}
 
 .workspace-footer {
   display: flex;

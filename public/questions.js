@@ -2,6 +2,13 @@ export const LETTERS = Object.freeze(['A', 'B', 'C', 'D']);
 export const MAX_QUESTIONS = 50;
 export const MAX_SOURCE_LENGTH = 60_000;
 
+export function majorityLabel(selections) {
+  const ballots = selections.map((selection) => LETTERS.filter((letter) => selection.includes(letter)).join(', '));
+  if (new Set(ballots).size < 2) return '';
+  const majority = ballots.find((ballot, index) => ballot && ballots.indexOf(ballot) < index);
+  return majority ? `Majority ${majority}` : 'No majority';
+}
+
 export function distinguishingPrefixEnd(answer, alternatives) {
   const words = [...answer.matchAll(/\S+/gu)];
   let sharedWords = 0;
@@ -23,7 +30,9 @@ const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/
 const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\s+answer|all\s+that\s+apply)\s*[.!]?\s*$/i;
 const portalPrompt = /^Do you understand\s*\?\s*\.$/i;
 const portalFooter = /^(?:\d+(?:[.,]\d+)?\s+points?|Coursera Honor Code|Last saved on [^\n]+)[\t ]*(?:\n|$)/i;
-const copiedComparisons = /^Claude (?:[A-D](?:, [A-D])*|Unavailable|—|…)\s*·\s*GPT (?:[A-D](?:, [A-D])*|Unavailable|—|…)$/;
+const copiedLetters = '[A-D](?:, [A-D])*';
+const copiedVote = `(?:${copiedLetters}|Unavailable|—|…)`;
+const copiedComparisons = new RegExp(`^Claude ${copiedVote}\\s*·\\s*GPT ${copiedVote}(?:\\s*·\\s*(?:Majority ${copiedLetters}|No majority))?$`);
 const fenceStart = /^\s*(`{3,}|~{3,})(.*)$/;
 const inlineCode = /(?<!`)(`+)([^`\n]*)\1(?!`)/g;
 

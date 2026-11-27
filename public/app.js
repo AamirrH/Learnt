@@ -1,4 +1,4 @@
-import { distinguishingPrefixEnd, LETTERS, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
+import { distinguishingPrefixEnd, LETTERS, majorityLabel, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
 import { GEMINI_KEY_HEADER, isGeminiKeyInput, isOpenRouterKeyInput, OPENROUTER_KEY_HEADER } from './gemini-key.js';
 
 const claudeOnly = document.documentElement.dataset.answerProvider === 'openrouter';
@@ -107,14 +107,19 @@ function questionCard(question, answer, comparisons) {
   if (answer?.explanation) card.append(element('p', answer.explanation, 'explanation'));
   if (comparisons.length) {
     const line = element('p', '', 'model-comparisons');
+    const selections = answer ? [selected] : [];
     for (const [index, { provider, byId, unavailable }] of comparisons.entries()) {
       const comparison = byId.get(question.id);
-      const choice = selectedOptions(comparison).join(', ') || (unavailable ? 'Unavailable' : comparison ? '—' : '…');
+      const letters = selectedOptions(comparison);
+      if (comparison) selections.push(letters);
+      const choice = letters.join(', ') || (unavailable ? 'Unavailable' : comparison ? '—' : '…');
       const item = element('span');
       item.append(`${providerNames[provider]} `, element('strong', choice));
       if (index) line.append(' · ');
       line.append(item);
     }
+    const majority = pending ? '' : majorityLabel(selections);
+    if (majority) line.append(' · ', element('strong', majority, 'majority-answer'));
     card.append(line);
   }
   return card;
