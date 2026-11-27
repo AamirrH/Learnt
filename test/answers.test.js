@@ -30,7 +30,7 @@ function providerResponse(answers) {
 test('routes the same reviewed questions to three models with their own keys and letter-only output', async (t) => {
   const claudeKey = ['sk', 'or', 'v1', 'fake-claude'].join('-');
   const gptKey = ['sk', 'or', 'v1', 'fake-gpt'].join('-');
-  const openRouterKeys = new Map([['anthropic/claude-sonnet-5.5', claudeKey], ['openai/gpt-6-sol', gptKey]]);
+  const openRouterKeys = new Map([['anthropic/claude-haiku-5.5', claudeKey], ['openai/gpt-6-sol', gptKey]]);
   const answers = [{ id: 'q2', choices: ['UNANSWERABLE'] }, { id: 'q1', choices: ['B'] }];
   const fetcher = t.mock.fn((url, { headers, body }) => {
     const request = JSON.parse(body);
