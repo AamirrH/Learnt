@@ -1,8 +1,8 @@
 import { GeminiError as AnswerError, letterAnswerSchema, letterInstruction, parseAnswerText, plainQuestionBatches } from './gemini.js';
 
 const models = new Map([
-  ['claude', 'anthropic/claude-haiku-5.5'],
-  ['gpt', 'openai/gpt-5.4-mini'],
+  ['claude', 'anthropic/claude-sonnet-5.5'],
+  ['gpt', 'openai/gpt-6-sol'],
 ]);
 const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
 const answersProperty = letterAnswerSchema.properties.answers;
@@ -49,6 +49,7 @@ async function answerBatch(questions, { apiKey, fetcher, signal, model }) {
           json_schema: { name: 'quiz_answers', strict: true, schema: strictAnswerSchema },
         },
         provider: { require_parameters: true },
+        reasoning: { effort: 'low' },
         max_tokens: 2048,
       }),
     });

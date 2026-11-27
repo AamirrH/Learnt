@@ -10,7 +10,7 @@ Enter a Gemini API key and separate Claude and GPT OpenRouter keys in the startu
 
 The server starts with `gemini-3.5-flash-lite`. If it times out or is unavailable, Learnt tries `gemini-3.8-flash` once and uses it for the remaining groups in that request. Set `GEMINI_MODEL` in the same session to choose a different starting model with structured output support. See [the Gemini model list](https://ai.google.dev/gemini-api/docs/models).
 
-OpenRouter compares Claude Haiku 5.5 and GPT-5.4 Mini through its Chat Completions endpoint. To test just Claude locally, run `npm run start:claude` and open [Claude mode](http://127.0.0.1:3118/).
+OpenRouter compares Claude Sonnet 5.5 and GPT-6 Sol through its Chat Completions endpoint. Both use low reasoning effort to keep the answer requests short. To test just Claude locally, run `npm run start:claude` and open [Claude mode](http://127.0.0.1:3118/).
 
 ## Review and answer
 
