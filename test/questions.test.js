@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { distinguishingPrefixEnd, parseQuestions } from '../public/questions.js';
+import { distinguishingPrefixEnd, majorityLabel, parseQuestions } from '../public/questions.js';
+
+test('shows a majority label only for decisions with conflicting model responses', () => {
+  assert.equal(majorityLabel([['B'], ['A'], ['B']]), 'Majority B');
+  assert.equal(majorityLabel([['A'], ['A'], ['A']]), '');
+  assert.equal(majorityLabel([['A'], ['B'], ['C']]), 'No majority');
+  assert.equal(majorityLabel([['A'], ['B']]), 'No majority');
+  assert.equal(majorityLabel([['B'], ['B'], []]), 'Majority B');
+  assert.equal(majorityLabel([['B'], [], []]), 'No majority');
+});
+
+test('requires the same complete selection for a select-all majority', () => {
+  assert.equal(majorityLabel([['D', 'B'], ['B', 'D'], ['B']]), 'Majority B, D');
+  assert.equal(majorityLabel([['A', 'B'], ['A', 'C'], ['B', 'C']]), 'No majority');
+});
+
+test('reviews 100 questions in order without a batch-size warning', () => {
+  const source = Array.from({ length: 100 }, (_, index) => (
+    `${index + 1}. Which option fits?\nA. One\nB. Two\nC. Three\nD. Four`
+  )).join('\n\n');
+  const result = parseQuestions(source);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions.length, 100);
+  assert.equal(result.questions.at(-1).id, 'q100');
+});
 
 test('highlights through the first word that distinguishes the answer from every option', () => {
   const answer = 'The apples are red and fruity but rotten.';
@@ -117,6 +141,16 @@ test('keeps multiline options when repasting a preview with bare option letters'
   assert.equal(result.questions.length, 2);
   assert.deepEqual(result.questions[0].options, { A: 'Answer', B: 'Two', C: 'Three', D: 'First line\nSecond line' });
   assert.deepEqual(result.removed, []);
+});
+
+test('removes copied model comparisons without trimming multiline option text', () => {
+  const source = '1.\nWhich wording matches?\nA\nOne\nAnswer\nB\nTwo\nC\nThree\nD\nFirst line\nSecond line';
+  for (const comparison of ['Claude B · GPT A, C', 'Claude A, C · GPT A, C · Majority A, C', 'Claude B · GPT C · No majority']) {
+    const result = parseQuestions(`${source}\n${comparison}`);
+    assert.deepEqual(result.warnings, []);
+    assert.deepEqual(result.questions[0].options, { A: 'One', B: 'Two', C: 'Three', D: 'First line\nSecond line' });
+    assert.deepEqual(result.removed, ['Answer', comparison]);
+  }
 });
 
 test('preserves context through the answer instruction and removes text after the four options', () => {

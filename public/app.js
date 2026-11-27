@@ -1,5 +1,11 @@
-import { distinguishingPrefixEnd, LETTERS, MAX_SOURCE_LENGTH, parseQuestions } from './questions.js';
-import { GEMINI_KEY_HEADER, isGeminiKeyInput } from './gemini-key.js';
+import { distinguishingPrefixEnd, LETTERS, majorityLabel, MAX_SOURCE_LENGTH, parseQuestions, QUESTIONS_PER_BATCH } from './questions.js';
+import { GEMINI_KEY_HEADER, isGeminiKeyInput, isOpenRouterKeyInput, OPENROUTER_KEY_HEADER } from './gemini-key.js';
+
+const claudeOnly = document.documentElement.dataset.answerProvider === 'openrouter';
+const providerNames = { gemini: 'Gemini', claude: 'Claude', gpt: 'GPT' };
+const comparisonProviders = ['claude', 'gpt'];
+const providers = claudeOnly ? ['claude'] : ['gemini', ...comparisonProviders];
+const primaryProvider = providers[0];
 
 const example = `Practice quiz · General science
 This worksheet is for personal revision. Choose one answer for each question.
@@ -35,13 +41,15 @@ const ids = [
   'step-paste', 'step-review', 'step-answers', 'review-title', 'review-description',
   'empty-state', 'review-actions', 'review-content', 'result-summary', 'issues', 'question-list',
   'answer', 'answer-label', 'answer-note', 'copy', 'status',
-  'workspace', 'manage-key', 'key-dialog', 'key-description', 'key-form', 'key-input', 'remove-key', 'cancel-key', 'save-key',
+  'workspace', 'manage-key', 'key-dialog', 'key-title', 'key-description', 'key-form',
+  'remove-key', 'cancel-key', 'save-key',
 ];
 const ui = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+const keyInputs = Object.fromEntries(providers.map((provider) => [provider, document.getElementById(`${provider}-key-input`)]));
+const results = new Map();
 let review = null;
-let answers = null;
 let pending = null;
-let geminiKey = '';
+let apiKeys = {};
 
 function element(tag, content, className) {
   const node = document.createElement(tag);
@@ -60,14 +68,22 @@ function plural(count, word) {
 }
 
 function isExample() {
-  return ui.source.value.trim() === example && !ui.exclusions.value.trim();
+  return !claudeOnly && ui.source.value.trim() === example && !ui.exclusions.value.trim();
+}
+
+function hasKeys() {
+  return providers.every((provider) => apiKeys[provider]);
 }
 
 function selectedOptions(answer) {
   return answer?.choices ?? (LETTERS.includes(answer?.choice) ? [answer.choice] : []);
 }
 
-function questionCard(question, answer) {
+function primaryAnswers() {
+  return new Map([...results.values()].flatMap((batch) => [...(batch.get(primaryProvider)?.answers ?? [])]));
+}
+
+function questionCard(question, answer, comparisons, waiting) {
   const card = element('li', '', 'question-card');
   const heading = element('h3');
   heading.append(element('span', `${question.number}.`, 'question-number'), element('span', question.stem));
@@ -93,82 +109,119 @@ function questionCard(question, answer) {
   card.append(heading, options);
   if (answer?.choice === 'UNANSWERABLE') card.append(element('p', 'Unanswered', 'explanation unanswered'));
   if (answer?.explanation) card.append(element('p', answer.explanation, 'explanation'));
+  if (comparisons.length) {
+    const line = element('p', '', 'model-comparisons');
+    const selections = answer ? [selected] : [];
+    for (const [index, { provider, comparison, unavailable }] of comparisons.entries()) {
+      const letters = selectedOptions(comparison);
+      if (comparison) selections.push(letters);
+      const choice = letters.join(', ') || (unavailable ? 'Unavailable' : comparison ? '—' : '…');
+      const item = element('span');
+      item.append(`${providerNames[provider]} `, element('strong', choice));
+      if (index) line.append(' · ');
+      line.append(item);
+    }
+    const majority = waiting ? '' : majorityLabel(selections);
+    if (majority) line.append(' · ', element('strong', majority, 'majority-answer'));
+    card.append(line);
+  }
   return card;
 }
 
 function render() {
-  const step = answers ? 'answers' : review ? 'review' : 'paste';
+  const answers = primaryAnswers();
+  const total = review?.questions.length ?? 0;
+  const primaryReady = total > 0 && answers.size === total;
+  const allReady = primaryReady && [...results.values()].every((batch) => providers.every((provider) => batch.get(provider)?.answers));
+  const exampleLoaded = isExample();
+  const step = answers.size ? 'answers' : review ? 'review' : 'paste';
   for (const name of ['paste', 'review', 'answers']) {
     if (name === step) ui[`step-${name}`].setAttribute('aria-current', 'step');
     else ui[`step-${name}`].removeAttribute('aria-current');
   }
 
   ui['source-count'].textContent = plural(ui.source.value.length, 'character');
-  ui.workspace.inert = !geminiKey;
-  ui['manage-key'].disabled = !geminiKey;
+  ui.workspace.inert = !hasKeys();
+  ui['manage-key'].disabled = !hasKeys();
   ui.review.disabled = !ui.source.value.trim();
   ui.clear.disabled = !ui.source.value && !ui.exclusions.value;
   ui['empty-state'].hidden = Boolean(review);
-  ui['review-actions'].hidden = Boolean(answers);
+  ui['review-actions'].hidden = allReady || (exampleLoaded && primaryReady);
   ui['review-content'].hidden = !review;
-  ui.copy.hidden = !answers;
-  ui['review-title'].textContent = answers ? 'Answer key' : 'Question preview';
-  const exampleLoaded = isExample();
-  ui['review-description'].textContent = answers
-    ? exampleLoaded ? 'Example answers' : 'Generated by Gemini'
+  ui.copy.hidden = !primaryReady;
+  ui['review-title'].textContent = answers.size ? 'Answer key' : 'Question preview';
+  ui['review-description'].textContent = answers.size
+    ? exampleLoaded ? 'Example answers' : `Generated by ${providerNames[primaryProvider]}`
     : 'Review your cleaned list before answering.';
   const canAnswer = review?.questions.length && !review.warnings.length;
-  ui.answer.disabled = !geminiKey || !canAnswer || Boolean(answers) || Boolean(pending);
-  ui['answer-label'].textContent = pending ? 'Getting answers…' : exampleLoaded ? 'Show example answers' : 'Get answers';
+  ui.answer.disabled = !hasKeys() || !canAnswer || allReady || (exampleLoaded && primaryReady) || Boolean(pending);
+  ui['answer-label'].textContent = pending ? 'Getting answers…' : exampleLoaded ? 'Show example answers'
+    : results.size ? 'Retry missing answers' : 'Get answers';
   ui['review-content'].setAttribute('aria-busy', String(Boolean(pending)));
   ui['answer-note'].textContent = 'Review the list to continue.';
   if (!review) return;
 
   if (review.warnings.length) ui['answer-note'].textContent = 'Resolve the review notes to continue.';
   else if (exampleLoaded) ui['answer-note'].textContent = 'Uses built-in example answers.';
-  else if (pending) ui['answer-note'].textContent = 'Sending questions in small groups.';
-  else ui['answer-note'].textContent = 'Uses your Gemini API key.';
+  else if (pending) ui['answer-note'].textContent = `Sending up to ${QUESTIONS_PER_BATCH} questions at a time.`;
+  else ui['answer-note'].textContent = claudeOnly ? 'Uses your OpenRouter key.' : 'Uses your Gemini key and OpenRouter credits.';
   ui['result-summary'].textContent = plural(review.questions.length, 'question');
   if (review.removed.length) ui['result-summary'].textContent += ` · ${plural(review.removed.length, 'paragraph')} removed`;
   ui.issues.hidden = !review.warnings.length;
   ui.issues.replaceChildren(...review.warnings.map((issue) => element('li', issue)));
 
-  const byId = new Map(answers?.map((answer) => [answer.id, answer]));
-  ui['question-list'].replaceChildren(...review.questions.map((question) => questionCard(question, byId.get(question.id))));
+  ui['question-list'].replaceChildren(...review.questions.map((question, index) => {
+    const batch = results.get(Math.floor(index / QUESTIONS_PER_BATCH));
+    const waiting = providers.some((provider) => batch?.get(provider)?.loading);
+    const comparisons = claudeOnly || exampleLoaded || !batch ? [] : comparisonProviders.map((provider) => {
+      const outcome = batch.get(provider);
+      return { provider, comparison: outcome?.answers?.get(question.id), unavailable: !outcome?.loading && !outcome?.answers };
+    });
+    return questionCard(question, answers.get(question.id), comparisons, waiting);
+  }));
 }
 
 function cancelPendingAnswer() {
   pending?.abort();
   pending = null;
+  for (const [index, batch] of results) {
+    for (const [provider, outcome] of batch) {
+      if (outcome.loading) batch.delete(provider);
+    }
+    if (!batch.size) results.delete(index);
+  }
 }
 
 function invalidateReview() {
   cancelPendingAnswer();
   review = null;
-  answers = null;
+  results.clear();
   announce();
   render();
 }
 
 function openKeyDialog() {
   const dialog = ui['key-dialog'];
-  const input = ui['key-input'];
-  dialog.setAttribute('closedby', geminiKey ? 'closerequest' : 'none');
-  input.value = '';
-  input.setCustomValidity('');
-  ui['key-description'].textContent = geminiKey
-    ? 'Replace or remove the key for this tab.'
-    : 'Add your Gemini API key to continue. Learnt keeps it in this tab until you refresh or remove it.';
-  ui['remove-key'].hidden = !geminiKey;
-  ui['cancel-key'].hidden = !geminiKey;
-  ui['save-key'].textContent = geminiKey ? 'Replace key' : 'Continue';
-  if (dialog.open) input.focus();
-  else dialog.showModal();
+  const unlocked = hasKeys();
+  dialog.setAttribute('closedby', unlocked ? 'closerequest' : 'none');
+  for (const [provider, input] of Object.entries(keyInputs)) {
+    input.value = '';
+    input.required = !apiKeys[provider];
+    input.setCustomValidity('');
+  }
+  ui['key-description'].textContent = unlocked
+    ? 'Leave a field blank to keep its current key.'
+    : 'Add your keys to continue. Learnt keeps them in this tab until you refresh or remove them.';
+  ui['remove-key'].hidden = !unlocked;
+  ui['cancel-key'].hidden = !unlocked;
+  ui['save-key'].textContent = unlocked ? 'Save keys' : 'Continue';
+  if (!dialog.open) dialog.showModal();
+  keyInputs[primaryProvider].focus();
 }
 
-function setGeminiKey(key) {
-  if (geminiKey !== key) cancelPendingAnswer();
-  geminiKey = key;
+function setApiKeys(next) {
+  if (providers.some((provider) => apiKeys[provider] !== next[provider])) cancelPendingAnswer();
+  apiKeys = next;
   render();
 }
 
@@ -177,35 +230,41 @@ ui.source.addEventListener('input', invalidateReview);
 ui.exclusions.addEventListener('input', invalidateReview);
 
 ui['manage-key'].addEventListener('click', openKeyDialog);
-ui['key-input'].addEventListener('input', () => ui['key-input'].setCustomValidity(''));
+for (const input of Object.values(keyInputs)) input.addEventListener('input', () => input.setCustomValidity(''));
 ui['cancel-key'].addEventListener('click', () => ui['key-dialog'].close());
 ui['key-dialog'].addEventListener('cancel', (event) => {
-  if (!geminiKey) event.preventDefault();
+  if (!hasKeys()) event.preventDefault();
 });
 ui['key-dialog'].addEventListener('close', () => {
   if (ui['key-dialog'].open) return;
-  if (!geminiKey) openKeyDialog();
-  else ui['key-input'].value = '';
+  if (!hasKeys()) openKeyDialog();
+  else for (const input of Object.values(keyInputs)) input.value = '';
 });
 ui['remove-key'].addEventListener('click', () => {
-  setGeminiKey('');
+  setApiKeys({});
   announce();
   openKeyDialog();
 });
 ui['key-form'].addEventListener('submit', (event) => {
   event.preventDefault();
-  const input = ui['key-input'];
-  const key = input.value.trim();
-  if (!isGeminiKeyInput(key)) {
-    input.setCustomValidity('Paste a valid Gemini API key without spaces.');
-    input.reportValidity();
-    return;
+  const next = { ...apiKeys };
+  for (const [provider, input] of Object.entries(keyInputs)) {
+    const key = input.value.trim();
+    if (!key && next[provider]) continue;
+    const valid = provider === 'gemini' ? isGeminiKeyInput(key) : isOpenRouterKeyInput(key);
+    if (!valid) {
+      const keyName = provider === 'gemini' ? 'Gemini API key' : 'OpenRouter API key';
+      input.setCustomValidity(`Paste a valid ${keyName} without spaces.`);
+      input.reportValidity();
+      return;
+    }
+    next[provider] = key;
   }
-  const unlocking = !geminiKey;
-  setGeminiKey(key);
+  const unlocking = !hasKeys();
+  setApiKeys(next);
   ui['key-dialog'].close();
   if (unlocking) ui.source.focus();
-  announce('Gemini key added for this tab.');
+  announce(claudeOnly ? 'OpenRouter key saved for this tab.' : 'API keys saved for this tab.');
 });
 
 ui['load-example'].addEventListener('click', () => {
@@ -228,17 +287,41 @@ ui['paste-form'].addEventListener('submit', (event) => {
   if (!ui.source.value.trim()) return;
   cancelPendingAnswer();
   review = parseQuestions(ui.source.value, ui.exclusions.value);
-  answers = null;
+  results.clear();
   render();
   ui['review-title'].focus();
   const message = `${plural(review.questions.length, 'question')} found. ${plural(review.removed.length, 'paragraph')} removed.`;
   announce(review.warnings.length ? `${message} Check the review notes.` : message);
 });
 
+async function requestBatch(provider, questions, body, signal) {
+  try {
+    const header = provider === 'gemini' ? GEMINI_KEY_HEADER : OPENROUTER_KEY_HEADER;
+    const response = await fetch(`/api/answers?provider=${provider}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', [header]: apiKeys[provider] },
+      body,
+      signal,
+      redirect: 'error',
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) return { error: result?.error || `Could not get answers (HTTP ${response.status}). Try again.` };
+    const entries = Array.isArray(result?.answers) ? result.answers : [];
+    const answers = new Map(entries.map((answer) => [answer?.id, answer]));
+    if (entries.length !== questions.length || questions.some(({ id }) => !answers.has(id))) {
+      return { error: 'The answer service returned an incomplete batch. Try again.' };
+    }
+    return { answers };
+  } catch {
+    return { error: 'Could not reach the answer service. Try again.' };
+  }
+}
+
 async function requestAnswers() {
-  if (!geminiKey || !review?.questions.length || review.warnings.length || pending || answers) return;
+  if (!hasKeys() || !review?.questions.length || review.warnings.length || pending) return;
   if (isExample()) {
-    answers = exampleAnswers;
+    const answers = new Map(exampleAnswers.map((answer) => [answer.id, answer]));
+    results.set(0, new Map([[primaryProvider, { answers }]]));
     render();
     announce('Example answer key ready.');
     return;
@@ -247,38 +330,42 @@ async function requestAnswers() {
   const request = new AbortController();
   pending = request;
   const questions = review.questions.map(({ id, stem, options }) => ({ id, stem, options }));
-  render();
-  announce('Getting answers from Gemini.');
-  try {
-    const response = await fetch('/api/answers', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', [GEMINI_KEY_HEADER]: geminiKey },
-      body: JSON.stringify({ questions }),
-      signal: request.signal,
-      redirect: 'error',
-    });
-    const result = await response.json();
-    if (pending !== request) return;
-    if (!response.ok) {
-      announce(result.error || 'Could not answer the questions. Try again.', true);
-      return;
-    }
-    answers = result.answers;
-    announce(`Answer key ready for ${plural(answers.length, 'question')}.`);
-  } catch {
-    if (pending === request) announce('Could not reach the answer service. Try again.', true);
-  } finally {
-    if (pending === request) {
-      pending = null;
+  const failures = new Map();
+  for (let start = 0; start < questions.length; start += QUESTIONS_PER_BATCH) {
+    const index = start / QUESTIONS_PER_BATCH;
+    const batch = results.get(index) ?? new Map();
+    const remaining = providers.filter((provider) => !batch.get(provider)?.answers && !failures.has(provider));
+    if (!remaining.length) continue;
+
+    const group = questions.slice(start, start + QUESTIONS_PER_BATCH);
+    const body = JSON.stringify({ questions: group });
+    results.set(index, batch);
+    for (const provider of remaining) batch.set(provider, { loading: true });
+    render();
+    const range = `${start + 1}–${start + group.length}`;
+    announce(`Answering questions ${range} of ${questions.length}.`);
+    await Promise.all(remaining.map(async (provider) => {
+      const outcome = await requestBatch(provider, group, body, request.signal);
+      if (pending !== request) return;
+      batch.set(provider, outcome);
+      if (outcome.error) failures.set(provider, `Questions ${range} · ${outcome.error}`);
       render();
-    }
+    }));
+    if (pending !== request) return;
   }
+
+  pending = null;
+  const errors = providers.filter((provider) => failures.has(provider))
+    .map((provider) => `${providerNames[provider]} · ${failures.get(provider)}`);
+  announce(errors.length ? errors.join(' ') : `Answer key ready for ${plural(questions.length, 'question')}.`, Boolean(errors.length));
+  render();
 }
 
 ui.answer.addEventListener('click', requestAnswers);
 
 ui.copy.addEventListener('click', async () => {
-  const byId = new Map(answers.map((answer) => [answer.id, answer]));
+  const byId = primaryAnswers();
+  if (!review?.questions.length || byId.size !== review.questions.length) return;
   const key = review.questions.map(({ id, number, options }) => {
     const wording = selectedOptions(byId.get(id)).map((choice) => `${choice}. ${options[choice]}`).join('\n   ');
     return `${number}. ${wording || 'Unanswered'}`;
@@ -291,5 +378,14 @@ ui.copy.addEventListener('click', async () => {
   }
 });
 
+if (claudeOnly) {
+  ui['manage-key'].textContent = 'OpenRouter key';
+  ui['key-title'].textContent = 'Claude OpenRouter key';
+  ui['remove-key'].textContent = 'Remove key';
+  for (const provider of ['gemini', 'gpt']) {
+    document.getElementById(`${provider}-key-field`).hidden = true;
+    document.getElementById(`${provider}-key-input`).disabled = true;
+  }
+}
 render();
 openKeyDialog();

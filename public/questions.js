@@ -1,6 +1,14 @@
 export const LETTERS = Object.freeze(['A', 'B', 'C', 'D']);
-export const MAX_QUESTIONS = 50;
-export const MAX_SOURCE_LENGTH = 60_000;
+export const MAX_QUESTIONS = 100;
+export const QUESTIONS_PER_BATCH = 20;
+export const MAX_SOURCE_LENGTH = 300_000;
+
+export function majorityLabel(selections) {
+  const ballots = selections.map((selection) => LETTERS.filter((letter) => selection.includes(letter)).join(', '));
+  if (new Set(ballots).size < 2) return '';
+  const majority = ballots.find((ballot, index) => ballot && ballots.indexOf(ballot) < index);
+  return majority ? `Majority ${majority}` : 'No majority';
+}
 
 export function distinguishingPrefixEnd(answer, alternatives) {
   const words = [...answer.matchAll(/\S+/gu)];
@@ -23,6 +31,9 @@ const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/
 const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\s+answer|all\s+that\s+apply)\s*[.!]?\s*$/i;
 const portalPrompt = /^Do you understand\s*\?\s*\.$/i;
 const portalFooter = /^(?:\d+(?:[.,]\d+)?\s+points?|Coursera Honor Code|Last saved on [^\n]+)[\t ]*(?:\n|$)/i;
+const copiedLetters = '[A-D](?:, [A-D])*';
+const copiedVote = `(?:${copiedLetters}|Unavailable|—|…)`;
+const copiedComparisons = new RegExp(`^Claude ${copiedVote}\\s*·\\s*GPT ${copiedVote}(?:\\s*·\\s*(?:Majority ${copiedLetters}|No majority))?$`);
 const fenceStart = /^\s*(`{3,}|~{3,})(.*)$/;
 const inlineCode = /(?<!`)(`+)([^`\n]*)\1(?!`)/g;
 
@@ -159,10 +170,14 @@ function readCopiedParts(lines) {
   const trailing = [];
   let hasAnswerBadge = false;
   const choices = labels.map((label, index) => {
-    const option = lines.slice(label + 1, labels[index + 1]);
+    const optionLines = lines.slice(label + 1, labels[index + 1]);
+    const final = index === labels.length - 1;
+    const finalLine = final ? optionLines.findLastIndex((line) => !blank(line)) : -1;
+    const hasComparisons = finalLine !== -1 && !optionLines[finalLine].code
+      && copiedComparisons.test(optionLines[finalLine].text.trim());
+    const option = hasComparisons ? optionLines.slice(0, finalLine) : optionLines;
     const first = option.findIndex((line) => !blank(line));
     const last = option.findLastIndex((line) => !blank(line));
-    const final = index === labels.length - 1;
     const badge = option.findIndex((line, position) => position > first && !line.code
       && (line.text.trim() === 'Answer' || (final && line.text.trim() === 'Unanswered'))
       && (final || position === last));
@@ -170,11 +185,11 @@ function readCopiedParts(lines) {
     if (badge !== -1) {
       end = badge;
       hasAnswerBadge = true;
-    } else if (final && hasAnswerBadge && last > first && !option[last].code) {
+    } else if (final && !hasComparisons && hasAnswerBadge && last > first && !option[last].code) {
       // A copied key appends its explanation after option D, even when D is unselected.
       end = last;
     }
-    trailing.push(...paragraphs(option.slice(end)).map(contentText));
+    trailing.push(...paragraphs(optionLines.slice(end)).map(contentText));
     return contentText(option.slice(0, end));
   });
   const stem = contentText(lines.slice(0, labels[0]));
