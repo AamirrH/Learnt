@@ -31,6 +31,7 @@ const inlineOptions = /(^|\s)(?:\(([A-D])\)|([A-D])(?:[.):]|\s+[-–]))(?=\s|$)/
 const answerInstruction = /\b(?:select|choose)\s+(?:(?:the\s+)?(?:best|correct)\s+answer|all\s+that\s+apply)\s*[.!]?\s*$/i;
 const portalPrompt = /^Do you understand\s*\?\s*\.$/i;
 const portalFooter = /^(?:\d+(?:[.,]\d+)?\s+points?|Coursera Honor Code|Last saved on [^\n]+)[\t ]*(?:\n|$)/i;
+const mathSpacingLine = /^[\t ]*[\u2061-\u2064][\t ]*$/u;
 const copiedLetters = '[A-D](?:, [A-D])*';
 const copiedVote = `(?:${copiedLetters}|Unavailable|—|…)`;
 const copiedComparisons = new RegExp(`^Claude ${copiedVote}\\s*·\\s*GPT ${copiedVote}(?:\\s*·\\s*(?:Majority ${copiedLetters}|No majority))?$`);
@@ -265,25 +266,53 @@ function splitQuestions(lines) {
   };
 }
 
+function joinWrappedMath(blocks) {
+  const joined = [];
+  for (const block of blocks) {
+    const previous = joined.at(-1);
+    // Copied math can occupy its own paragraph even when the surrounding sentence continues.
+    const continues = /^[\t ]+\p{Ll}/u.test(block.at(-1).text)
+      && block.some((line) => !line.code && mathSpacingLine.test(line.text));
+    if (previous && continues) joined[joined.length - 1] = [...previous, { text: '' }, ...block];
+    else joined.push(block);
+  }
+  return joined;
+}
+
 function readUnlabeledParts(lines) {
-  const blocks = paragraphs(lines);
-  const instructionIndex = blocks.findIndex((block) => !block.at(-1).code && answerInstruction.test(contentText(block)));
-  const stemEnd = instructionIndex === -1 && blocks.length === LETTERS.length + 1 ? 0 : instructionIndex;
-  if (stemEnd < 0) return null;
+  const separator = lines.findIndex((line) => !line.code && portalPrompt.test(line.text.trim()));
+  const blocks = paragraphs(lines.slice(separator + 1));
+  const instruction = separator === -1
+    ? blocks.findIndex((block) => !block.at(-1).code && answerInstruction.test(contentText(block)))
+    : -1;
+  const firstChoice = separator !== -1 ? 0 : instruction !== -1 ? instruction + 1 : null;
+  const footer = blocks.findIndex((block, index) => (
+    index >= (firstChoice ?? 1) + LETTERS.length && startsWithFiller(block, portalFooter)
+  ));
+  const end = footer === -1 ? blocks.length : footer;
+  const body = joinWrappedMath(blocks.slice(firstChoice ?? 0, end));
 
-  const optionsStart = stemEnd + 1;
-  const afterStem = blocks.slice(optionsStart);
-  const footerIndex = afterStem.findIndex((block, index) => index >= LETTERS.length && startsWithFiller(block, portalFooter));
-  const beforeFooter = footerIndex === -1 ? afterStem : afterStem.slice(0, footerIndex);
-  const withoutPrompt = beforeFooter.filter((block) => !startsWithFiller(block, /^Do you understand\s*\?$/i));
-  const chosen = (withoutPrompt.length >= LETTERS.length ? withoutPrompt : beforeFooter).slice(0, LETTERS.length);
-  if (chosen.length !== LETTERS.length) return null;
+  // Without a separator, the last four paragraphs are the choices. Keep all preceding context.
+  const candidates = firstChoice === null ? body.slice(-LETTERS.length) : body;
+  const withoutPrompt = candidates.filter((block) => !startsWithFiller(block, /^Do you understand\s*\?$/i));
+  const options = withoutPrompt.length >= LETTERS.length ? withoutPrompt : candidates;
+  if (options.length < LETTERS.length || (separator !== -1 && options.length !== LETTERS.length)) return null;
+  if (separator !== -1 && footer === -1 && startsWithFiller(options.at(-1), portalFooter)) return null;
 
+  const chosen = options.slice(0, LETTERS.length);
   const finalChoice = splitLastChoice(chosen.at(-1));
+  const stem = separator !== -1 ? paragraphs(lines.slice(0, separator))
+    : firstChoice === null ? body.slice(0, -LETTERS.length)
+    : blocks.slice(0, firstChoice);
   return {
-    stem: blocks.slice(0, optionsStart).map(contentText).join('\n\n'),
+    stem: stem.map(contentText).join('\n\n'),
     choices: [...chosen.slice(0, -1).map(contentText), contentText(finalChoice.body)],
-    trailing: [...afterStem.filter((block) => !chosen.includes(block)).map(contentText), ...finalChoice.trailing],
+    trailing: [
+      ...(separator === -1 ? [] : [lines[separator].text.trim()]),
+      ...candidates.filter((block) => !chosen.includes(block)).map(contentText),
+      ...finalChoice.trailing,
+      ...blocks.slice(end).map(contentText),
+    ],
   };
 }
 
@@ -319,17 +348,15 @@ function readStandardParts(sectionLines) {
     }
   }
 
-  const hasFourLabels = letters.join('') === 'ABCD';
-  const lastChoice = hasFourLabels ? splitLastChoice(parts.at(-1)) : null;
-  if (lastChoice) parts[parts.length - 1] = lastChoice.body;
-
+  if (!letters.length) return readUnlabeledParts(sectionLines);
+  if (letters.join('') !== LETTERS.join('')) return null;
+  const lastChoice = splitLastChoice(parts.at(-1));
+  parts[parts.length - 1] = lastChoice.body;
   const [stemLines, ...choiceLines] = parts;
-  const unlabeled = letters.length ? null : readUnlabeledParts(lines);
-  if (!unlabeled && !hasFourLabels) return null;
   return {
-    stem: unlabeled?.stem ?? contentText(stemLines),
-    choices: unlabeled?.choices ?? choiceLines.map(contentText),
-    trailing: [...filler, ...(unlabeled?.trailing ?? lastChoice.trailing)],
+    stem: contentText(stemLines),
+    choices: choiceLines.map(contentText),
+    trailing: [...filler, ...lastChoice.trailing],
   };
 }
 
