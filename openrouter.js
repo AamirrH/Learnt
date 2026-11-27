@@ -1,7 +1,7 @@
 import { GeminiError as AnswerError, letterAnswerSchema, letterInstruction, parseAnswerText, plainQuestionBatches } from './gemini.js';
 
 const models = new Map([
-  ['claude', 'anthropic/claude-sonnet-5.5'],
+  ['claude', 'anthropic/claude-haiku-5.5'],
   ['gpt', 'openai/gpt-6-sol'],
 ]);
 const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
