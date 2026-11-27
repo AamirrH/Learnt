@@ -179,6 +179,37 @@ test('removes course page text, quiz prompts, and score metadata before assignin
   ]);
 });
 
+test('separates multi-paragraph stems from unlabeled choices without an answer instruction', () => {
+  const stem = ['A log contains the responses to a form.', 'Which value records the highest score?'];
+  const choices = ['First value', 'Second value\nwith a wrapped line', 'Third value', 'Fourth value'];
+  for (const metadata of [[], ['Do you understand?.']]) {
+    for (const footer of [[], ['2 points']]) {
+      const result = parseQuestions(['9.\nQuestion 9', ...stem, ...metadata, ...choices, ...footer].join('\n\n'));
+      assert.deepEqual(result.warnings, []);
+      assert.equal(result.questions[0].stem, stem.join('\n\n'));
+      assert.deepEqual(Object.values(result.questions[0].options), choices);
+      assert.deepEqual(result.removed, [...metadata, ...footer]);
+    }
+  }
+});
+
+test('keeps a copied formula continuation inside its unlabeled choice', () => {
+  const wrappedChoice = 'Minimize the objective\n\nf\n\u2061\n(\nt\n)\n and report the result.';
+  const source = ['3. Which method fits?', 'Use a table.', wrappedChoice, 'Print the input.', 'Compare both ranges.', '1 point'];
+  const result = parseQuestions(source.join('\n\n'));
+  assert.deepEqual(result.warnings, []);
+  assert.equal(result.questions[0].options.B, wrappedChoice);
+  assert.equal(result.questions[0].options.D, 'Compare both ranges.');
+  assert.deepEqual(result.removed, ['1 point']);
+});
+
+test('does not assign quiz scoring metadata to a missing choice', () => {
+  const source = ['1. A question with only three choices?', 'Do you understand?.', 'One', 'Two', 'Three', '1 point'];
+  const result = parseQuestions(source.join('\n\n'));
+  assert.deepEqual(result.questions, []);
+  assert.match(result.warnings[0], /Question 1 needs question text and four options/);
+});
+
 test('preserves point values and exact phrases when they are part of the four choices', () => {
   const source = '1. Which phrase or value was given? Select the best answer.\n\nDo you understand?\n\nGo now\n\n2 points\n\n4 points\n\n1 point';
   const result = parseQuestions(source);
